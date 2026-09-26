@@ -1,7 +1,20 @@
 /* Twitter Curated Portal - Header, Sidebar (Accordion & Sticky), Grid Layout & Responsive */
 html, body {
-  overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100vw;
+}
+
+.mobile-drawer-header {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .mobile-drawer-header {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
 }
 
 /* 顶部导航 Header - 严丝合缝 64px 物理盒模型 */
@@ -13,9 +26,9 @@ html, body {
       box-sizing: border-box;
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      background: rgb(var(--c-surface) / 0.82);
+      background: rgb(var(--c-bg) / 0.85); /* Stitch Ethereal Slate Glassmorphism */
       border-bottom: 1px solid rgb(var(--c-line));
-      box-shadow: 0 1px 10px rgb(var(--c-sunken) / 0.55);
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.35);
       padding: 0 1.5rem;
       display: flex;
       align-items: center;
@@ -33,13 +46,13 @@ html, body {
     .brand-logo {
       width: 38px;
       height: 38px;
-      border-radius: 9px;
+      border-radius: 10px;
       overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 16px rgb(var(--c-brand) / 0.35);
-      border: 1px solid rgb(var(--c-brand) / 0.4);
+      box-shadow: 0 0 18px rgb(var(--c-brand) / 0.32);
+      border: 1px solid rgb(var(--c-brand) / 0.45);
       flex-shrink: 0;
       background: rgb(var(--c-card));
     }
@@ -60,13 +73,13 @@ html, body {
 
     .brand-sub {
       font-size: 0.72rem;
-      color: rgb(var(--c-brand));
+      color: rgb(var(--c-brand-bright));
       font-family: var(--font-mono);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
     }
 
-    /* 搜索栏与过滤控制 */
+    /* 搜索栏与过滤控制 - Stitch Pill Capsule 简约胶囊 */
     .search-box {
       flex: 1;
       max-width: 440px;
@@ -79,17 +92,19 @@ html, body {
       box-sizing: border-box;
       background: rgb(var(--c-sunken));
       border: 1px solid rgb(var(--c-line));
-      border-radius: 8px;
-      padding: 0.45rem 1rem 0.45rem 2.3rem;
+      border-radius: 9999px; /* Stitch pill capsule */
+      padding: 0.45rem 1rem 0.45rem 2.4rem;
       color: rgb(var(--c-fg));
       font-size: 0.86rem;
       outline: none;
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
     }
 
     .search-box input:focus {
-      border-color: rgb(var(--c-brand));
-      box-shadow: 0 0 0 3px rgb(var(--c-brand) / 0.15);
+      border-color: rgb(var(--c-brand) / 0.75);
+      background: rgb(var(--c-surface));
+      box-shadow: 0 0 0 3px rgb(var(--c-brand) / 0.2), inset 0 1px 2px rgba(0, 0, 0, 0.15);
     }
 
     .search-icon {
@@ -213,7 +228,7 @@ html, body {
       width: 100%;
       padding: 0.55rem 0.75rem;
       margin-bottom: 0.25rem;
-      border-radius: 7px;
+      border-radius: 8px;
       background: transparent;
       border: 1px solid transparent;
       color: rgb(var(--c-fg-muted));
@@ -229,10 +244,11 @@ html, body {
     }
 
     .category-btn.active {
-      background: rgb(var(--c-brand-soft));
-      border-color: rgb(var(--c-brand) / 0.3);
+      background: rgb(var(--c-brand) / 0.12);
+      border-color: rgb(var(--c-brand) / 0.32);
       color: rgb(var(--c-brand-bright));
       font-weight: 600;
+      box-shadow: inset 3px 0 0 rgb(var(--c-brand));
     }
 
     .category-count {

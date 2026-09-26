@@ -1,45 +1,48 @@
 /* Twitter Curated Portal - Design Tokens, Animations & Base Theme */
     :root {
-      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+      --font-body: 'Inter', system-ui, -apple-system, sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
       
-      /* 大笃深青 Petrol Teal 设计系统令牌 */
-      --c-bg: 7 16 15;
-      --c-surface: 13 26 24;
-      --c-surface-hover: 18 36 33;
-      --c-sunken: 4 11 10;
-      --c-fg: 233 241 239;
-      --c-fg-muted: 158 180 176;
-      --c-fg-subtle: 108 130 126;
-      --c-line: 28 45 42;
-      --c-line-strong: 44 66 61;
-      --c-brand: 64 209 192;
-      --c-brand-bright: 125 232 218;
-      --c-brand-soft: 12 40 37;
-      --c-brand-deep: 6 26 24;
-      --c-accent: 240 181 46;
-      --c-accent-soft: 44 33 9;
-      --c-danger: 239 68 68;
-      --c-success: 34 197 94;
+      /* Stitch: Modern Curatorial Precision 设计系统令牌 (Dark Theme) */
+      --c-bg: 13 19 31;               /* #0d131f 黑曜石深蓝微墨底 */
+      --c-surface: 22 28 40;          /* #161c28 石板蓝卡片表面 */
+      --c-surface-hover: 32 40 55;    /* #202837 悬浮柔和微提亮 */
+      --c-sunken: 8 14 26;            /* #080e1a 沉降槽位与输入底色 */
+      --c-fg: 221 226 244;            /* #dde2f4 珍珠冷白主文本 */
+      --c-fg-muted: 148 163 184;      /* #94a3b8 次级导引文本 (Slate 400) */
+      --c-fg-subtle: 100 116 139;     /* #64748b 弱化指示符 (Slate 500) */
+      --c-line: 33 44 64;             /* #212c40 细发丝微透明边框 */
+      --c-line-strong: 51 65 85;      /* #334155 强结构分隔线 */
+      --c-brand: 99 102 241;          /* #6366f1 电光靛蓝 (Electric Indigo) */
+      --c-brand-bright: 129 140 248;   /* #818cf8 高对比度聚焦与高亮 */
+      --c-brand-soft: 30 27 75;       /* #1e1b4b 靛蓝柔和底 */
+      --c-brand-deep: 49 46 129;      /* #312e81 靛蓝深景深 */
+      --c-secondary: 56 189 248;      /* #38bdf8 晴空钴蓝 (Cobalt Sky) */
+      --c-accent: 245 158 11;         /* #f59e0b 琥珀金 (Amber Gold 收藏点缀) */
+      --c-accent-soft: 69 26 3;       /* #451a03 琥珀柔和底 */
+      --c-danger: 239 68 68;          /* #ef4444 警示红 */
+      --c-success: 16 185 129;        /* #10b981 实时同步绿 (Sync Emerald) */
     }
 
     /* ============ 浅色主题 (Light Theme) 令牌 ============ */
     html.light {
-      --c-bg: 245 247 246;
-      --c-surface: 255 255 255;
-      --c-surface-hover: 244 247 246;
-      --c-sunken: 238 242 240;
-      --c-fg: 11 19 16;
-      --c-fg-muted: 58 74 69;
-      --c-fg-subtle: 105 120 115;
-      --c-line: 227 232 229;
-      --c-line-strong: 198 210 204;
-      --c-brand: 13 148 136;
-      --c-brand-bright: 15 118 110;
-      --c-brand-soft: 214 244 239;
-      --c-brand-deep: 17 94 89;
-      --c-accent: 217 145 20;
-      --c-accent-soft: 253 238 198;
+      --c-bg: 248 250 252;            /* #f8fafc 纯净微冷灰白底 */
+      --c-surface: 255 255 255;       /* #ffffff 纯白卡片底 */
+      --c-surface-hover: 241 245 249; /* #f1f5f9 浅灰悬停底 */
+      --c-sunken: 241 245 249;        /* #f1f5f9 沉降底 */
+      --c-fg: 15 23 42;               /* #0f172a 极深青灰文字 */
+      --c-fg-muted: 71 85 105;        /* #475569 次级文本 */
+      --c-fg-subtle: 148 163 184;     /* #94a3b8 弱化文本 */
+      --c-line: 226 232 240;          /* #e2e8f0 柔和微边框 */
+      --c-line-strong: 203 213 225;   /* #cbd5e1 结构描边 */
+      --c-brand: 79 70 229;           /* #4f46e5 靛蓝主色 */
+      --c-brand-bright: 67 56 202;    /* #4338ca 亮靛蓝 */
+      --c-brand-soft: 238 242 255;    /* #eef2ff 柔和靛蓝底 */
+      --c-brand-deep: 55 48 163;      /* #3730a3 深调 */
+      --c-secondary: 2 132 199;       /* #0284c7 钴蓝次色 */
+      --c-accent: 217 119 6;          /* #d97706 琥珀金点缀 */
+      --c-accent-soft: 254 243 199;   /* #fef3c7 琥珀柔和底 */
       --c-danger: 220 38 38;
       --c-success: 22 163 74;
     }
@@ -128,22 +131,22 @@
       background-image: none; /* 浅色保持纯净，不要雾感光晕 */
     }
     html.light header {
-      background: rgb(255 255 255 / 0.86);
-      box-shadow: 0 1px 3px rgb(16 42 38 / 0.07);
+      background: rgb(255 255 255 / 0.88);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
     }
     html.light .brand-logo {
-      box-shadow: 0 4px 14px rgb(var(--c-brand) / 0.35);
+      box-shadow: 0 4px 14px rgb(var(--c-brand) / 0.28);
     }
     html.light .tweet-card:hover {
-      border-color: rgb(var(--c-brand) / 0.55);
-      box-shadow: 0 16px 36px -10px rgb(var(--c-brand) / 0.22), 0 4px 10px -4px rgb(16 42 38 / 0.1);
+      border-color: rgb(var(--c-brand) / 0.45);
+      box-shadow: 0 16px 36px -10px rgb(var(--c-brand) / 0.2), 0 4px 12px -4px rgba(15, 23, 42, 0.08);
     }
     html.light .control-bar,
     html.light .modal-card {
-      box-shadow: 0 1px 2px rgb(16 42 38 / 0.05), 0 1px 3px rgb(16 42 38 / 0.04);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.03);
     }
     html.light .modal-card {
-      box-shadow: 0 24px 60px -12px rgb(16 42 38 / 0.3);
+      box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.25);
     }
     html.light .btn-action.btn-twitter {
       color: #0284c7;
@@ -154,7 +157,7 @@
       color: #0369a1;
     }
     html.light #toastMsg {
-      box-shadow: 0 12px 32px rgb(16 42 38 / 0.16);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
     }
     html.light .search-box input:focus {
       box-shadow: 0 0 0 3px rgb(var(--c-brand) / 0.18);
@@ -177,13 +180,13 @@
       font-family: var(--font-sans);
       background-color: rgb(var(--c-bg));
       background-image:
-        radial-gradient(900px 420px at 85% -5%, rgb(var(--c-brand) / 0.045), transparent 65%),
-        radial-gradient(700px 380px at -5% 105%, rgb(var(--c-brand) / 0.035), transparent 60%);
+        radial-gradient(1000px 500px at 80% -10%, rgb(var(--c-brand) / 0.065), transparent 60%),
+        radial-gradient(800px 450px at -10% 90%, rgb(var(--c-secondary) / 0.04), transparent 55%);
       background-attachment: fixed;
       background-repeat: no-repeat;
       color: rgb(var(--c-fg));
       min-height: 100vh;
-      overflow-x: hidden;
+      overflow-x: clip;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }

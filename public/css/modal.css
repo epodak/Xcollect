@@ -1,235 +1,264 @@
 /* Twitter Curated Portal - Detail Modal Drawer, Markdown Prose, Auth Dialog & Toast */
-    /* 详情抽屉模态框 Drawer */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(8px);
-      z-index: 100;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
-    }
+/* 详情抽屉模态框 Drawer */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
 
-    .modal-overlay.active {
-      display: flex;
-    }
+.modal-overlay.active {
+  display: flex;
+}
 
-    .modal-card {
-      background: rgb(var(--c-surface));
-      border: 1px solid rgb(var(--c-line-strong));
-      border-radius: 14px;
-      width: 100%;
-      max-width: 760px;
-      max-height: 88vh;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 20px 50px -10px rgba(0,0,0,0.6);
-      overflow: hidden;
-    }
+.modal-card {
+  background: rgb(var(--c-surface));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgb(var(--c-line-strong));
+  border-radius: 16px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  /* Stitch Level 3: Modal Inspection Overlays with subtle indigo rim glow */
+  box-shadow: 0 32px 64px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgb(var(--c-brand) / 0.15);
+  overflow: hidden;
+}
 
-    .modal-header {
-      padding: 1.25rem 1.5rem;
-      border-bottom: 1px solid rgb(var(--c-line));
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-    }
+.modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgb(var(--c-line));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
 
-    .modal-close {
-      background: transparent;
-      border: none;
-      color: rgb(var(--c-fg-subtle));
-      font-size: 1.3rem;
-      cursor: pointer;
-      line-height: 1;
-    }
-    .modal-close:hover {
-      color: rgb(var(--c-fg));
-    }
+.modal-close {
+  background: transparent;
+  border: none;
+  color: rgb(var(--c-fg-subtle));
+  font-size: 1.3rem;
+  cursor: pointer;
+  line-height: 1;
+}
 
-    .modal-body {
-      padding: 1.5rem;
-      overflow-y: auto;
-      line-height: 1.65;
-      font-size: 0.92rem;
-    }
+.modal-close:hover {
+  color: rgb(var(--c-fg));
+}
 
-    .modal-body h1, .modal-body h2, .modal-body h3 {
-      margin: 1.2rem 0 0.6rem;
-      color: rgb(var(--c-brand-bright));
-    }
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  line-height: 1.65;
+  font-size: 0.92rem;
+}
 
-    .modal-body pre, .modal-body blockquote {
-      background: rgb(var(--c-sunken));
-      border-left: 3px solid rgb(var(--c-brand));
-      padding: 0.8rem 1rem;
-      border-radius: 6px;
-      margin: 1rem 0;
-      color: rgb(var(--c-fg-muted));
-    }
+.modal-body h1,
+.modal-body h2,
+.modal-body h3 {
+  margin: 1.2rem 0 0.6rem;
+  color: rgb(var(--c-brand-bright));
+}
 
-    .modal-body img {
-      max-width: 100%;
-      border-radius: 8px;
-      margin: 1rem 0;
-      border: 1px solid rgb(var(--c-line));
-    }
+.modal-body pre,
+.modal-body blockquote {
+  background: rgb(var(--c-sunken));
+  border-left: 3px solid rgb(var(--c-brand));
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  margin: 1rem 0;
+  color: rgb(var(--c-fg-muted));
+}
 
-    .modal-body video {
-      width: 100%;
-      border-radius: 8px;
-      margin: 1rem 0;
-      border: 1px solid rgb(var(--c-line));
-    }
+.modal-body img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 1rem 0;
+  border: 1px solid rgb(var(--c-line));
+}
 
-    .modal-footer {
-      padding: 1rem 1.5rem;
-      border-top: 1px solid rgb(var(--c-line));
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgb(var(--c-sunken));
-    }
+.modal-body video {
+  width: 100%;
+  border-radius: 8px;
+  margin: 1rem 0;
+  border: 1px solid rgb(var(--c-line));
+}
 
-    /* 弹窗通用表单样式 */
-    .form-group {
-      margin-bottom: 1.2rem;
-    }
-    .form-group label {
-      display: block;
-      font-size: 0.8rem;
-      color: rgb(var(--c-fg-muted));
-      margin-bottom: 0.4rem;
-      font-family: var(--font-mono);
-    }
-    .form-group input {
-      width: 100%;
-      background: rgb(var(--c-sunken));
-      border: 1px solid rgb(var(--c-line));
-      border-radius: 6px;
-      padding: 0.6rem 0.8rem;
-      color: rgb(var(--c-fg));
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-      outline: none;
-    }
-    .form-group input:focus {
-      border-color: rgb(var(--c-brand));
-    }
-    .form-tip {
-      font-size: 0.74rem;
-      color: rgb(var(--c-fg-subtle));
-      margin-top: 0.35rem;
-      line-height: 1.4;
-    }
+.modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid rgb(var(--c-line));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgb(var(--c-sunken));
+}
 
-    /* 空状态 */
-    .empty-state {
-      text-align: center;
-      padding: 5rem 2rem;
-      color: rgb(var(--c-fg-subtle));
-    }
+/* 弹窗通用表单样式 */
+.form-group {
+  margin-bottom: 1.2rem;
+}
 
-    /* 消息浮动提示 Toast */
-    #toastMsg {
-      position: fixed;
-      bottom: 2rem;
-      right: 2rem;
-      z-index: 200;
-      background: rgb(var(--c-surface));
-      border: 1px solid rgb(var(--c-brand));
-      color: rgb(var(--c-fg));
-      padding: 0.75rem 1.25rem;
-      border-radius: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      font-size: 0.85rem;
-      display: none;
-      align-items: center;
-      gap: 0.5rem;
-    }
+.form-group label {
+  display: block;
+  font-size: 0.8rem;
+  color: rgb(var(--c-fg-muted));
+  margin-bottom: 0.4rem;
+  font-family: var(--font-mono);
+}
+
+.form-group input {
+  width: 100%;
+  background: rgb(var(--c-sunken));
+  border: 1px solid rgb(var(--c-line));
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  color: rgb(var(--c-fg));
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.form-group input:focus {
+  border-color: rgb(var(--c-brand));
+}
+
+.form-tip {
+  font-size: 0.74rem;
+  color: rgb(var(--c-fg-subtle));
+  margin-top: 0.35rem;
+  line-height: 1.4;
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 5rem 2rem;
+  color: rgb(var(--c-fg-subtle));
+}
+
+/* 消息浮动提示 Toast */
+#toastMsg {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 200;
+  background: rgb(var(--c-surface));
+  border: 1px solid rgb(var(--c-brand));
+  color: rgb(var(--c-fg));
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-size: 0.85rem;
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+}
 
 
-      /* 详情模态框移动端沉浸设计 */
-      .modal-overlay {
-        padding: 0.4rem;
-      }
-      .modal-card {
-        width: 100%;
-        max-height: 94vh;
-        border-radius: 12px;
-      }
-      .modal-header {
-        padding: 0.8rem 1rem;
-      }
-      .modal-body {
-        padding: 1rem;
-        font-size: 0.86rem;
-        word-break: break-word;
-      }
-      .modal-body img, .modal-body video {
-        max-width: 100%;
-        height: auto;
-      }
-      .modal-footer {
-        padding: 0.75rem 1rem;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.55rem;
-      }
-      .modal-footer #modalStats {
-        text-align: center;
-      }
-      .modal-footer div[style*="display: flex"] {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.5rem;
-      }
-      .modal-footer .btn-action {
-        width: 100%;
-        padding: 0.52rem;
-        font-size: 0.78rem;
-      }
+/* 详情模态框移动端沉浸设计 */
+@media (max-width: 768px) {
+  .modal-overlay {
+    padding: 0.4rem;
+  }
 
-      #toastMsg {
-        bottom: 1rem;
-        right: 0.75rem;
-        left: 0.75rem;
-        justify-content: center;
-        text-align: center;
-      }
-    }
+  .modal-card {
+    width: 100%;
+    max-height: 94vh;
+    border-radius: 12px;
+  }
 
-    @media (max-width: 480px) {
-      main.content-area {
-        padding: 0.5rem 0.4rem 3rem;
-      }
-      .brand-title {
-        font-size: 0.9rem;
-      }
-      .stat-badge {
-        font-size: 0.68rem;
-        padding: 0.22rem 0.45rem;
-      }
-      .view-mode-btns {
-        display: none !important; /* 手机端强制单列卡片 */
-      }
-      .tweet-card {
-        padding: 0.75rem 0.75rem;
-      }
-      .card-footer {
-        justify-content: space-between;
-      }
-      .card-buttons {
-        width: 100%;
-        display: flex;
-        justify-content: flex-end;
-      }
-      .card-buttons .btn-action {
-        flex: 1;
-        max-width: 120px;
-        text-align: center;
-      }
-    }
+  .modal-header {
+    padding: 0.8rem 1rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+    font-size: 0.86rem;
+    word-break: break-word;
+  }
+
+  .modal-body img,
+  .modal-body video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .modal-footer {
+    padding: 0.75rem 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+  }
+
+  .modal-footer #modalStats {
+    text-align: center;
+  }
+
+  .modal-footer > div:last-child {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .modal-footer .btn-action {
+    width: 100%;
+    padding: 0.52rem;
+    font-size: 0.78rem;
+  }
+
+  #toastMsg {
+    bottom: 1rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  main.content-area {
+    padding: 0.5rem 0.4rem 3rem;
+  }
+
+  .brand-title {
+    font-size: 0.9rem;
+  }
+
+  .stat-badge {
+    font-size: 0.68rem;
+    padding: 0.22rem 0.45rem;
+  }
+
+  .view-mode-btns {
+    display: none !important;
+    /* 手机端强制单列卡片 */
+  }
+
+  .tweet-card {
+    padding: 0.75rem 0.75rem;
+  }
+
+  .card-footer {
+    justify-content: space-between;
+  }
+
+  .card-buttons {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .card-buttons .btn-action {
+    flex: 1;
+    max-width: 120px;
+    text-align: center;
+  }
+}

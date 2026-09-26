@@ -22,17 +22,19 @@
 
     /* 推文卡片 */
     .tweet-card {
-      background: rgb(var(--c-surface));
+      background: rgb(var(--c-surface) / 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
       border: 1px solid rgb(var(--c-line));
       border-radius: 12px;
-      padding: 1.2rem;
+      padding: 1.25rem;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       height: 100%; /* 填满单元格拉伸高度，整行绝对等高 */
       min-height: 420px; /* 统一等高基准高度，保持视觉秩序感 */
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04);
-      transition: border-color 0.2s ease, box-shadow 0.25s ease, background-color 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: border-color 0.22s ease, box-shadow 0.25s ease, background-color 0.2s ease;
       position: relative;
     }
 
@@ -45,14 +47,14 @@
        通过背景向下方自然投射深层环境阴影 (Drop Shadow) 呈现悬浮浮空质感，杜绝鼠标错位与按钮点击脱靶 */
     .tweet-card:hover {
       transform: none !important;
-      border-color: rgb(var(--c-brand) / 0.5);
+      border-color: rgb(var(--c-brand) / 0.45);
       background-color: rgb(var(--c-surface-hover));
-      /* 向下投射的立体景深投影 (Y轴正偏移 +16px ~ +24px)，使卡片在背景上方立体浮空，但物理坐标纹丝不动 */
-      box-shadow: 0 16px 36px -6px rgb(var(--c-brand) / 0.16), 0 22px 44px -8px rgba(0, 0, 0, 0.18);
+      /* Stitch Level 2: Interactive Hover Bloom 靛蓝光晕与深层景深投影 */
+      box-shadow: 0 16px 36px -6px rgb(var(--c-brand) / 0.18), 0 24px 50px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 
     html:not(.light) .tweet-card:hover {
-      box-shadow: 0 16px 36px -6px rgb(var(--c-brand) / 0.2), 0 24px 50px -10px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 16px 36px -6px rgb(var(--c-brand) / 0.22), 0 24px 50px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
 
     .card-main {
@@ -134,11 +136,12 @@
       font-size: 0.72rem;
       font-weight: 500;
       font-family: var(--font-mono);
-      background: rgb(var(--c-brand-soft));
+      background: rgb(var(--c-brand) / 0.12);
       color: rgb(var(--c-brand-bright));
-      padding: 0.18rem 0.52rem;
-      border-radius: 6px;
+      padding: 0.18rem 0.56rem;
+      border-radius: 9999px; /* Stitch pill badge */
       border: 1px solid rgb(var(--c-brand) / 0.25);
+      letter-spacing: 0.02em;
       white-space: nowrap;
       max-width: 140px;
       overflow: hidden;
@@ -150,16 +153,16 @@
     }
 
     .badge-subcat:hover {
-      background: rgb(var(--c-brand) / 0.25);
-      border-color: rgb(var(--c-brand) / 0.5);
+      background: rgb(var(--c-brand) / 0.22);
+      border-color: rgb(var(--c-brand) / 0.45);
     }
 
     .badge-subcat.active {
-      background: rgb(var(--c-brand-bright));
-      color: #0b0f19;
+      background: rgb(var(--c-brand));
+      color: #ffffff;
       font-weight: 600;
-      border-color: rgb(var(--c-brand-bright));
-      box-shadow: 0 0 10px rgb(var(--c-brand) / 0.3);
+      border-color: rgb(var(--c-brand));
+      box-shadow: 0 0 12px rgb(var(--c-brand) / 0.35);
     }
 
     .card-title {
@@ -346,7 +349,7 @@
       border: 1px solid rgb(var(--c-line));
       color: rgb(var(--c-fg-muted));
       padding: 0.38rem 0.65rem;
-      border-radius: 7px;
+      border-radius: 8px; /* Stitch 8px rounded controls */
       font-size: 0.76rem;
       font-weight: 500;
       cursor: pointer;
@@ -369,6 +372,7 @@
 
     .btn-action:active {
       opacity: 0.85;
+      transform: scale(0.98);
     }
 
     .btn-action.btn-bookmark {
@@ -378,10 +382,10 @@
     }
 
     .btn-action.btn-bookmark.saved {
-      background: rgb(var(--c-accent-soft));
+      background: rgb(var(--c-accent) / 0.12);
       border-color: rgb(var(--c-accent) / 0.45);
       color: rgb(var(--c-accent));
-      box-shadow: 0 0 10px rgb(var(--c-accent) / 0.08);
+      box-shadow: 0 0 12px rgb(var(--c-accent) / 0.15);
     }
 
     .btn-action.btn-bookmark.unbookmarked {
