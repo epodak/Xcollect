@@ -1,18 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Cloudflare Python Worker 边缘统一路由与分发中枢。
-
-职责：
-1. 接收 Edge HTTP 请求并进行轻量路径路由分发
-2. 调用专职模块处理业务：
-   - config_loader: 全局配置单一真源
-   - classifier: 智能分类与分类发现
-   - twitter: X 官方 GraphQL 协议通信与书签抓取
-   - storage: 级联存储（D1/KV/缓存）与拓扑重整化
-3. 托管静态资产与边缘 CDN 缓存控制
-"""
+"""Cloudflare Python Worker 边缘统一路由与分发中枢。"""
 
 import json
 import urllib.parse
+
 from config_loader import CONFIG
 from classifier import get_existing_categories
 from twitter import call_x_bookmark_api, fetch_remote_bookmarks
@@ -21,6 +12,7 @@ from storage import (
     load_tweets,
     save_tweets,
     delete_tweet_from_storage,
+    get_storage_status,
     get_topology_status,
     renormalize_topology,
     batch_classify_pending,
@@ -39,8 +31,8 @@ async def on_fetch(request, env):
         url = urllib.parse.urlparse(request.url)
         path = url.path
         method = request.method.upper()
+        query = urllib.parse.parse_qs(url.query)
 
-        # 1. 凭据状态感知端点
         if path == "/api/auth/status":
             auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
             ct0 = getattr(env, "X_CT0", "") or ""
@@ -48,18 +40,27 @@ async def on_fetch(request, env):
                 "configured": bool(auth_token and ct0),
                 "has_auth_token": bool(auth_token),
                 "has_ct0": bool(ct0),
-                "auth_token_preview": (auth_token[:6] + "..." + auth_token[-4:]) if auth_token else "",
                 "runtime": "Cloudflare Python Worker (Modularized)",
+                "runtime_write_supported": False,
+                "credentials_source": "Cloudflare Worker Secret",
             })
 
-        # 1.1 凭据保存说明端点 (Cloudflare Worker 边缘 Secret 预置兼容)
+        # Worker Secret 不能通过业务 HTTP 请求在运行时持久化。
+        # 旧实现返回 success=True 却没有保存任何东西，会制造“网页保存成功”的假象。
         if path == "/api/auth/save" and method == "POST":
             return json_resp({
-                "success": True,
-                "message": "已检测到 Cloudflare Worker 边缘环境已预置有效凭证！",
-            })
+                "success": False,
+                "error": (
+                    "Cloudflare Worker 生产环境不能从网页写入 X 凭证。"
+                    "请在 Cloudflare Worker Secrets 中配置 X_AUTH_TOKEN 与 X_CT0，"
+                    "或使用 wrangler secret put。"
+                ),
+                "runtime_write_supported": False,
+            }, 409)
 
-        # 2. 书签操作端点 (添加 / 删除)
+        if path == "/api/storage/status":
+            return json_resp(await get_storage_status(env))
+
         if path == "/api/bookmark/toggle" and method == "POST":
             body_text = await request.text()
             try:
@@ -73,7 +74,10 @@ async def on_fetch(request, env):
             ct0 = getattr(env, "X_CT0", "") or ""
 
             if not auth_token or not ct0:
-                return json_resp({"success": False, "error": "Worker 环境变量未配置 X_AUTH_TOKEN 或 X_CT0"}, 400)
+                return json_resp({
+                    "success": False,
+                    "error": "Worker Secret 未配置 X_AUTH_TOKEN 或 X_CT0",
+                }, 400)
 
             ok, msg = await call_x_bookmark_api(tweet_id, action, auth_token, ct0)
             if not ok:
@@ -89,30 +93,70 @@ async def on_fetch(request, env):
                 "tweet_id": tweet_id,
             })
 
-        # 3. 实时从 X 云端抓取最新书签列表并入库
-        if path == "/api/bookmarks/sync":
+        # 保留 GET 兼容旧前端；新前端用 POST，因为同步会产生远端读取与本地写入副作用。
+        if path == "/api/bookmarks/sync" and method in ("GET", "POST"):
             auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
             ct0 = getattr(env, "X_CT0", "") or ""
             if not auth_token or not ct0:
-                return json_resp({"success": False, "message": "未配置 X 平台凭证"}, 400)
+                return json_resp({
+                    "success": False,
+                    "error": "X_CREDENTIALS_MISSING",
+                    "message": (
+                        "生产 Worker 未配置 X_AUTH_TOKEN / X_CT0 Secret。"
+                        "网页输入框不能写入 Cloudflare Secret。"
+                    ),
+                }, 400)
 
-            existing_cats = await get_existing_categories(env)
-            pulled = await fetch_remote_bookmarks(auth_token, ct0, CONFIG.max_sync_pages, existing_cats, env)
+            try:
+                existing_cats = await get_existing_categories(env)
+                pulled, fetch_meta = await fetch_remote_bookmarks(
+                    auth_token,
+                    ct0,
+                    CONFIG.max_sync_pages,
+                    existing_cats,
+                    env,
+                )
+            except Exception as sync_err:
+                return json_resp({
+                    "success": False,
+                    "error": "X_SYNC_FAILED",
+                    "message": str(sync_err),
+                }, 502)
 
-            saved, storage_msg = await save_tweets(env, pulled)
+            saved, storage_msg, storage_meta = await save_tweets(env, pulled)
+            storage_status = await get_storage_status(env)
+
+            if not saved:
+                return json_resp({
+                    "success": False,
+                    "error": "PERSISTENCE_FAILED",
+                    "message": f"X 已拉取 {len(pulled)} 条，但持久化失败：{storage_msg}",
+                    "pulled_count": len(pulled),
+                    "fetch": fetch_meta,
+                    "storage": storage_meta,
+                    "storage_status": storage_status,
+                    "data": pulled,
+                }, 500)
+
             return json_resp({
                 "success": True,
-                "message": f"成功拉取并智能归类 {len(pulled)} 篇推文，{storage_msg}",
+                "message": f"X 拉取 {len(pulled)} 条；{storage_msg}",
+                "pulled_count": len(pulled),
+                "fetch": fetch_meta,
+                "storage": storage_meta,
+                "storage_status": storage_status,
                 "data": pulled,
             })
 
-        # 3.1 查询推文列表 (边缘内存缓存 -> D1 数据库 -> KV 存储级联)
         if path == "/api/tweets":
             res = await load_tweets(env)
-            status_code = 200 if res.get("success") else 200
-            return json_resp(res, status_code, cache_seconds=CONFIG.cache_seconds)
+            fresh = query.get("fresh", ["0"])[0] == "1"
+            return json_resp(
+                res,
+                200,
+                cache_seconds=0 if fresh else CONFIG.cache_seconds,
+            )
 
-        # 3.2 批量对历史/未分类/暂存推文执行智能分类与专区归档
         if path == "/api/bookmarks/classify" and method == "POST":
             ok, msg, items = await batch_classify_pending(env)
             if not ok:
@@ -124,19 +168,15 @@ async def on_fetch(request, env):
                 "items": items,
             })
 
-        # 3.3 拓扑状态感知端点
         if path == "/api/topology/status":
-            status_data = await get_topology_status(env)
-            return json_resp(status_data)
+            return json_resp(await get_topology_status(env))
 
-        # 3.4 拓扑重整化执行端点
         if path == "/api/topology/renormalize" and method == "POST":
             ok, msg = await renormalize_topology(env)
             if not ok:
                 return json_resp({"success": False, "error": msg}, 500 if "异常" in msg else 400)
             return json_resp({"success": True, "message": msg})
 
-        # 4. 静态资产回退处理
         if hasattr(env, "ASSETS"):
             return await env.ASSETS.fetch(request)
 
