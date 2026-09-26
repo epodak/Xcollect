@@ -2,19 +2,13 @@ import json
 import re
 import urllib.parse
 from js import Response, Headers, Object as JsObject, JSON as JsJSON, fetch as js_fetch
+from config_loader import CONFIG
 
-TWITTER_BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
-QUERY_ID_BOOKMARKS = "XD0ViOeSOW4YoeNTGjVaYw"
-QUERY_ID_CREATE = "aoDbu3RHznuiSkQ9aNM67Q"
-QUERY_ID_DELETE = "Wlmlj2-xzyS1GN3a6cj-mQ"
-
-VALID_CATEGORIES = [
-    "01_人工智能与Agent",
-    "02_技术架构与开发",
-    "03_开源精选与工具",
-    "04_产品设计与思考",
-    "05_前沿资讯与研读"
-]
+TWITTER_BEARER = CONFIG.twitter_bearer
+QUERY_ID_BOOKMARKS = CONFIG.query_id_bookmarks
+QUERY_ID_CREATE = CONFIG.query_id_create
+QUERY_ID_DELETE = CONFIG.query_id_delete
+VALID_CATEGORIES = list(CONFIG.default_categories)
 
 def rule_classify_tweet(text, title=""):
     full = f"{title} {text}".lower()
@@ -130,12 +124,8 @@ async def get_existing_categories(env):
             print("获取已有专区列表失败:", str(e))
     return cats
 
-# Cloudflare Workers AI 官方推荐活跃文本分类模型（按低延迟、轻量和可用性排序，多模型级联容灾）
-WORKERS_AI_CANDIDATE_MODELS = [
-    "@cf/meta/llama-3.1-8b-instruct-fast",
-    "@cf/meta/llama-3.2-3b-instruct",
-    "@cf/meta/llama-3.2-1b-instruct",
-]
+# Cloudflare Workers AI 官方推荐活跃文本分类模型矩阵 (来自 config.toml)
+WORKERS_AI_CANDIDATE_MODELS = list(CONFIG.workers_ai_models)
 
 def get_kv_binding(env):
     """自适应探测 Cloudflare KV 存储绑定"""
@@ -156,25 +146,17 @@ async def ai_classify_tweet(text, title="", existing_categories=None, env=None):
         
     cats_prompt_list = "\n".join([f"- {c}" for c in active_cats])
     content_snippet = (f"标题: {title}\n正文: {text}")[:1400]
-    system_prompt = (
-        "你是一个科技前沿推文的自适应知识分类专家。\n"
-        "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n\n"
-        f"【目前已有的专区列表】：\n{cats_prompt_list}\n\n"
-        "【分类惯性约束】：必须从上述【已有专区列表】中选择最匹配的专区名称；\n"
-        "【细分提炼】：为推文提取一个 4-10 字的 sub_category 二级标签。\n"
-        "必须严格只输出 JSON 对象：\n"
-        "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
-    )
+    system_prompt = CONFIG.classify_prompt_template.format(existing_categories=cats_prompt_list)
 
-    # 1. 优先梯队：检测用户是否配置了自定义大模型 API (DeepSeek / OpenAI 兼容端点)
+    # 1. 优先梯队：检测用户是否配置了自定义大模型 API (从环境变量或 Secret 提取，非敏感参数来自 config.toml)
     custom_key = ""
-    custom_base = "https://api.deepseek.com/v1"
-    custom_model = "deepseek-chat"
+    custom_base = CONFIG.custom_ai_base
+    custom_model = CONFIG.custom_ai_model
     if env:
         try:
             custom_key = getattr(env, "CUSTOM_AI_API_KEY", "") or getattr(env, "AI_API_KEY", "") or ""
-            custom_base = getattr(env, "CUSTOM_AI_API_BASE", "") or getattr(env, "AI_API_BASE", "") or "https://api.deepseek.com/v1"
-            custom_model = getattr(env, "CUSTOM_AI_MODEL", "") or getattr(env, "AI_MODEL", "") or "deepseek-chat"
+            custom_base = getattr(env, "CUSTOM_AI_API_BASE", "") or getattr(env, "AI_API_BASE", "") or CONFIG.custom_ai_base
+            custom_model = getattr(env, "CUSTOM_AI_MODEL", "") or getattr(env, "AI_MODEL", "") or CONFIG.custom_ai_model
         except Exception:
             pass
 
@@ -375,7 +357,7 @@ async def on_fetch(request, env):
                 "longform_notetweets_consumption_enabled": True
             }
             # 支持游标连续翻页深度拉取（最大 15 页，单页 50 篇，足以完整覆盖 750+ 篇全量书签）
-            max_pages = 15
+            max_pages = CONFIG.max_sync_pages
             cursor = None
             pulled = []
             seen_ids = set()
@@ -658,7 +640,7 @@ async def on_fetch(request, env):
                             "total": len(tweets_list), 
                             "data": tweets_list
                         }
-                        return json_resp(_MEM_CACHE_TWEETS, 200, cache_seconds=60)
+                        return json_resp(_MEM_CACHE_TWEETS, 200, cache_seconds=CONFIG.cache_seconds)
                 except Exception as d1_err:
                     print("从 D1 读取异常:", str(d1_err))
 
@@ -675,7 +657,7 @@ async def on_fetch(request, env):
                             "total": len(kv_tweets),
                             "data": kv_tweets
                         }
-                        return json_resp(_MEM_CACHE_TWEETS, 200, cache_seconds=60)
+                        return json_resp(_MEM_CACHE_TWEETS, 200, cache_seconds=CONFIG.cache_seconds)
                 except Exception as kv_err:
                     print("从 KV 读取异常:", str(kv_err))
 
@@ -719,7 +701,7 @@ async def on_fetch(request, env):
                             cat_counts[c] = cat_counts.get(c, 0) + 1
 
             max_ratio = (max(cat_counts.values()) / total) if total > 0 and cat_counts else 0.0
-            needs_renormalize = projected >= 30 or (projected >= 10 and max_ratio > 0.40)
+            needs_renormalize = projected >= CONFIG.renormalize_threshold or (projected >= 10 and max_ratio > CONFIG.max_cluster_ratio)
             return json_resp({
                 "success": True,
                 "total_tweets": total,

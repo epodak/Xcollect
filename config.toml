@@ -3,7 +3,7 @@
 #
 # 遵循 Agent Relay Hygiene 规范：
 # - 唯一职责：代码硬编码解耦专用，集中承载所有非敏感的工程与业务参数
-# - 包含：服务拓扑、运行旋钮、超时重试、资产路径、特性开关等
+# - 包含：服务拓扑、运行旋钮、超时重试、资产路径、特性开关、Twitter协议常量等
 # - 严禁存放任何敏感密钥与凭据 (敏感项留空或通过本地 .env 注入)
 # ==============================================================================
 
@@ -20,10 +20,19 @@ host = "127.0.0.1"
 [runtime]
 timeout = 30.0
 max_retries = 3
+cache_seconds = 60
+max_sync_pages = 25
 
 [features]
 enable_cloud_sync = true
 enable_offline_cache = true
+
+[twitter]
+# Twitter Web 客户端公开请求网关常量
+bearer_token = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+query_id_bookmarks = "XD0ViOeSOW4YoeNTGjVaYw"
+query_id_create = "aoDbu3RHznuiSkQ9aNM67Q"
+query_id_delete = "Wlmlj2-xzyS1GN3a6cj-mQ"
 
 [taxonomy]
 default_categories = [
@@ -40,10 +49,14 @@ default_categories = [
 provider = "auto"
 custom_api_base = "https://api.deepseek.com/v1"
 custom_model = "deepseek-chat"
+workers_ai_models = [
+  "@cf/meta/llama-3.1-8b-instruct-fast",
+  "@cf/meta/llama-3.2-3b-instruct",
+  "@cf/meta/llama-3.2-1b-instruct"
+]
 
 [topology]
 # 知识拓扑重整化阈值：未固化条目达到此数量触发重整化分析
 renormalize_threshold = 30
 # 单一专区占比上限（超过此比例视为过载密集簇，建议向下分裂）
 max_cluster_ratio = 0.40
-

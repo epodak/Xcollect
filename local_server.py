@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-server.py - Twitter 看板、云端书签实时拉取与真实双向同步全功能服务
-特性：
-1. 静态看板页面与 tweets_db.json 数据服务
-2. /api/auth/status 检查本地是否配置了有效凭证
-3. /api/auth/save 保存用户输入的 auth_token 和 ct0
-4. /api/bookmarks/sync 直接从 X 官方 GraphQL API 实时拉取最新云端收藏推文（支持按需更新 tweets_db.json）
-5. /api/bookmark/toggle 代表用户真实调用 X GraphQL API 删除/恢复书签
+local_server.py - Twitter 看板、云端书签实时拉取与真实双向同步本地独立服务
+
+遵循 Agent Relay Hygiene 规范：
+1. 零业务硬编码：全部解耦参数来自 config.toml (通过 config_loader.CONFIG 加载)
+2. 敏感机密隔离：仅从本地私有 .env 提取凭证
+3. 一行冒烟自检：python local_server.py --check
 """
 
 import os
@@ -20,59 +19,27 @@ import urllib.parse
 import urllib.error
 import re
 from urllib.parse import urlparse
+from pathlib import Path
 
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.toml")
-ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
-SERVE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "public"))
-DB_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "scripts", "seed_data.json"))
+# 导入集中解耦配置中心
+from config_loader import CONFIG
 
-# 从 config.toml 读取非敏感运行参数，严格遵守工程卫生双轨契约
-PORT = 8089
-if os.path.exists(CONFIG_FILE):
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("port =") or line.startswith("port="):
-                    val = line.split("=", 1)[1].strip()
-                    if val.isdigit():
-                        PORT = int(val)
-    except Exception:
-        pass
+BASE_DIR = Path(__file__).resolve().parent
+SERVE_DIR = str(BASE_DIR / "public")
+DB_FILE = str(BASE_DIR / "scripts" / "seed_data.json")
+ENV_FILE = str(BASE_DIR / ".env")
 
-TWITTER_BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+PORT = CONFIG.port
+TWITTER_BEARER = CONFIG.twitter_bearer
+QUERY_ID_BOOKMARKS = CONFIG.query_id_bookmarks
+QUERY_ID_CREATE = CONFIG.query_id_create
+QUERY_ID_DELETE = CONFIG.query_id_delete
+DEFAULT_CATEGORIES = list(CONFIG.default_categories)
+VALID_CATEGORIES = list(CONFIG.default_categories)
 
-QUERY_ID_BOOKMARKS = "XD0ViOeSOW4YoeNTGjVaYw"
-QUERY_ID_CREATE = "aoDbu3RHznuiSkQ9aNM67Q"
-QUERY_ID_DELETE = "Wlmlj2-xzyS1GN3a6cj-mQ"
-
-DEFAULT_CATEGORIES = [
-    "01_人工智能与Agent",
-    "02_技术架构与开发",
-    "03_开源精选与工具",
-    "04_产品设计与思考",
-    "05_前沿资讯与研读"
-]
-
-def load_categories_from_config():
-    cats = list(DEFAULT_CATEGORIES)
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                content = f.read()
-            m = re.search(r"default_categories\s*=\s*\[(.*?)\]", content, re.DOTALL)
-            if m:
-                raw_items = m.group(1).split(",")
-                parsed = [item.strip().strip('"').strip("'") for item in raw_items if item.strip().strip('"').strip("'")]
-                if parsed:
-                    return parsed
-        except Exception:
-            pass
-    return cats
-
-VALID_CATEGORIES = load_categories_from_config()
 
 def rule_classify_tweet(text, title=""):
+    """纯本地正则与语义关键词规则引擎 (零成本、零延迟、断网100%兜底)"""
     full = f"{title} {text}".lower()
     
     # 1. 01_人工智能与Agent
@@ -99,24 +66,26 @@ def rule_classify_tweet(text, title=""):
     if any(k in full for k in [
         "python", "rust", "golang", "javascript", "typescript", "react", "vue", "docker", "k8s",
         "kubernetes", "backend", "frontend", "api", "database", "sql", "sqlite", "postgres",
-        "cloudflare", "workers", "serverless", "架构", "全栈", "性能优化", "并发", "linux", "kernel"
+        "redis", "cloudflare", "workers", "serverless", "node", "next.js", "linux", "git",
+        "架构", "性能优化", "高并发", "微服务", "devops", "ci/cd"
     ]):
-        if any(k in full for k in ["cloudflare", "workers", "serverless", "docker", "k8s", "部署"]):
-            sub = "云原生与边缘计算"
-        elif any(k in full for k in ["database", "sql", "sqlite", "postgres", "d1", "kv"]):
-            sub = "数据库与存储架构"
-        elif any(k in full for k in ["rust", "golang", "python", "typescript", "javascript"]):
-            sub = "编程语言与系统构建"
-        elif any(k in full for k in ["性能", "并发", "延迟", "benchmark", "优化"]):
-            sub = "高性能与系统架构"
+        if any(k in full for k in ["cloudflare", "workers", "serverless", "d1", "edge"]):
+            sub = "边缘计算与Serverless"
+        elif any(k in full for k in ["rust", "golang", "性能", "c++"]):
+            sub = "高性能后端与系统架构"
+        elif any(k in full for k in ["react", "vue", "frontend", "css", "next.js"]):
+            sub = "现代前端与全栈工程"
+        elif any(k in full for k in ["database", "sql", "sqlite", "postgres", "redis"]):
+            sub = "数据库与存储系统"
         else:
-            sub = "全栈工程与系统设计"
+            sub = "系统架构与工程开发"
         return "02_技术架构与开发", sub
 
     # 3. 03_开源精选与工具
     if any(k in full for k in [
-        "github", "开源", "star", "repo", "open source", "cli", "terminal", "命令行", "bash", "zsh",
-        "extension", "神器", "工具", "效率", "productivity", "osint", "spiderfoot", "shodan", "theharvester"
+        "github.com", "open source", "开源", "star", "repo", "tool", "tools", "工具",
+        "cli", "terminal", "mac", "windows", "devtools", "插件", "workflow", "神器",
+        "效率", "osint", "security", "黑客", "漏洞", "逆向"
     ]):
         if any(k in full for k in ["osint", "security", "安全", "shodan", "spiderfoot", "theharvester"]):
             sub = "安全审计与检索工具"
@@ -148,11 +117,12 @@ def rule_classify_tweet(text, title=""):
         sub = "行业前沿与长文洞察"
     return "05_前沿资讯与研读", sub
 
+
 def get_credentials():
-    """仅从单一真源 .env 或环境变量提取机密凭证"""
+    """从配置中心提取机密凭证 (单一真源来自 .env / 环境)"""
+    if CONFIG.x_auth_token and CONFIG.x_ct0:
+        return {"auth_token": CONFIG.x_auth_token, "ct0": CONFIG.x_ct0}
     creds = {}
-    if os.environ.get("X_AUTH_TOKEN") and os.environ.get("X_CT0"):
-        return {"auth_token": os.environ["X_AUTH_TOKEN"], "ct0": os.environ["X_CT0"]}
     if os.path.exists(ENV_FILE):
         try:
             with open(ENV_FILE, "r", encoding="utf-8") as f:
@@ -170,53 +140,35 @@ def get_credentials():
             pass
     return creds
 
-def get_custom_ai_config():
-    """读取用户自定义的 AI 配置 (支持 DeepSeek / OpenAI / Ollama 等兼容接口)"""
-    config = {
-        "api_base": os.environ.get("CUSTOM_AI_API_BASE", "https://api.deepseek.com/v1"),
-        "api_key": os.environ.get("CUSTOM_AI_API_KEY", ""),
-        "model": os.environ.get("CUSTOM_AI_MODEL", "deepseek-chat")
-    }
-    if os.path.exists(ENV_FILE):
-        try:
-            with open(ENV_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        k = k.strip()
-                        v = v.strip().strip('"').strip("'")
-                        if k == "CUSTOM_AI_API_BASE" and v:
-                            config["api_base"] = v
-                        elif k == "CUSTOM_AI_API_KEY" and v:
-                            config["api_key"] = v
-                        elif k == "CUSTOM_AI_MODEL" and v:
-                            config["model"] = v
-        except Exception:
-            pass
-    return config
+
+def save_credentials(auth_token, ct0):
+    """保存凭证至本地私有真源 .env 及 Cloudflare 本地机密文件 .dev.vars"""
+    data = {"auth_token": auth_token.strip(), "ct0": ct0.strip()}
+    with open(ENV_FILE, "w", encoding="utf-8") as f:
+        f.write(f"# X 身份凭证 (由本地开发服务器写入，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
+    try:
+        dev_vars_file = os.path.join(os.path.dirname(__file__), ".dev.vars")
+        with open(dev_vars_file, "w", encoding="utf-8") as f:
+            f.write(f"# Cloudflare Wrangler 本地开发机密注入文件 (由 .env 同步，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
+    except Exception:
+        pass
+    CONFIG.x_auth_token = auth_token.strip()
+    CONFIG.x_ct0 = ct0.strip()
+    return data
+
 
 def classify_tweet_multi_tier(text, title="", active_cats=None):
     """三级阶梯分类调度器：用户自定义 AI -> 本地规则兜底 (保持惯性，吸附在已有大类中)"""
     if not active_cats:
         active_cats = list(DEFAULT_CATEGORIES)
     
-    ai_cfg = get_custom_ai_config()
-    if ai_cfg.get("api_key"):
+    if CONFIG.custom_ai_api_key:
         try:
-            url = f"{ai_cfg['api_base'].rstrip('/')}/chat/completions"
+            url = f"{CONFIG.custom_ai_base.rstrip('/')}/chat/completions"
             cats_list_str = "\n".join([f"- {c}" for c in active_cats])
-            prompt = (
-                "你是一个科技前沿推文的自适应知识分类专家。\n"
-                "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n"
-                f"【目前已有的专区列表】：\n{cats_list_str}\n\n"
-                "【分类惯性约束】：必须从上述【已有专区列表】中选择最匹配的专区名称；\n"
-                "【细分提炼】：为推文提取一个 4-10 字的 sub_category 二级标签。\n"
-                "必须严格只输出 JSON 对象：\n"
-                "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
-            )
+            prompt = CONFIG.classify_prompt_template.format(existing_categories=cats_list_str)
             payload = json.dumps({
-                "model": ai_cfg["model"],
+                "model": CONFIG.custom_ai_model,
                 "messages": [
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": f"标题: {title}\n正文: {text}"[:1200]}
@@ -229,11 +181,11 @@ def classify_tweet_multi_tier(text, title="", active_cats=None):
                 data=payload,
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {ai_cfg['api_key']}"
+                    "Authorization": f"Bearer {CONFIG.custom_ai_api_key}"
                 },
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=CONFIG.timeout) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 content = res.get("choices", [{}])[0].get("message", {}).get("content", "")
                 m = re.search(r"\{.*?\}", content, re.DOTALL)
@@ -253,18 +205,6 @@ def classify_tweet_multi_tier(text, title="", active_cats=None):
     # 兜底：纯本地规则引擎
     return rule_classify_tweet(text, title)
 
-def save_credentials(auth_token, ct0):
-    """保存凭证至本地私有真源 .env 及 Cloudflare 本地机密文件 .dev.vars"""
-    data = {"auth_token": auth_token.strip(), "ct0": ct0.strip()}
-    with open(ENV_FILE, "w", encoding="utf-8") as f:
-        f.write(f"# X 身份凭证 (由本地开发服务器写入，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
-    try:
-        dev_vars_file = os.path.join(os.path.dirname(__file__), ".dev.vars")
-        with open(dev_vars_file, "w", encoding="utf-8") as f:
-            f.write(f"# Cloudflare Wrangler 本地开发机密注入文件 (由 .env 同步，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
-    except Exception:
-        pass
-    return data
 
 def get_base_headers(auth_token, ct0):
     return {
@@ -276,6 +216,7 @@ def get_base_headers(auth_token, ct0):
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
         "cookie": f"auth_token={auth_token}; ct0={ct0};"
     }
+
 
 def call_x_bookmark_api(tweet_id, action="delete"):
     creds = get_credentials()
@@ -298,7 +239,7 @@ def call_x_bookmark_api(tweet_id, action="delete"):
     req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
 
     try:
-        with urllib.request.urlopen(req, timeout=12) as response:
+        with urllib.request.urlopen(req, timeout=CONFIG.timeout) as response:
             res_body = response.read().decode("utf-8")
             res_data = json.loads(res_body)
             if "errors" in res_data:
@@ -314,8 +255,11 @@ def call_x_bookmark_api(tweet_id, action="delete"):
         return False, f"网络请求异常: {str(ex)}"
 
 
-def fetch_remote_bookmarks(max_pages=20):
+def fetch_remote_bookmarks(max_pages=None):
     """直接调用 X 官方 GraphQL API 连续翻页（游标下潜）拉取全量云端真实书签"""
+    if max_pages is None:
+        max_pages = CONFIG.max_sync_pages
+
     creds = get_credentials()
     auth_token = creds.get("auth_token")
     ct0 = creds.get("ct0")
@@ -352,50 +296,60 @@ def fetch_remote_bookmarks(max_pages=20):
                 "variables": json.dumps(variables),
                 "features": json.dumps(features)
             }
-            query_string = urllib.parse.urlencode(params)
-            url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{query_string}"
+            url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{urllib.parse.urlencode(params)}"
+            req = urllib.request.Request(url, headers=headers)
 
-            req = urllib.request.Request(url, headers=headers, method="GET")
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            with urllib.request.urlopen(req, timeout=CONFIG.timeout) as response:
+                res_body = response.read().decode("utf-8")
+                res_data = json.loads(res_body)
 
-            instructions = data.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {}).get("instructions", [])
-            page_new_count = 0
-            next_cursor = None
+                timeline = res_data.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {})
+                instructions = timeline.get("instructions", [])
 
-            for ins in instructions:
-                if ins.get("type") == "TimelineAddEntries":
-                    for entry in ins.get("entries", []):
+                page_new_count = 0
+                next_cursor = None
+
+                for inst in instructions:
+                    entries = inst.get("entries", [])
+                    for entry in entries:
                         entry_id = entry.get("entryId", "")
-                        content = entry.get("content", {})
+                        
+                        # 解析下翻页游标 (以 cursor-bottom- 开头)
+                        if "cursor-bottom-" in entry_id:
+                            content = entry.get("content", {})
+                            val = content.get("value") or content.get("itemContent", {}).get("value")
+                            if val:
+                                next_cursor = val
 
-                        # 提取底部翻页游标
-                        if "cursor-bottom" in entry_id or content.get("cursorType") == "Bottom":
-                            next_cursor = content.get("value") or content.get("itemContent", {}).get("value")
+                        if entry_id.startswith("tweet-"):
+                            item_content = entry.get("content", {}).get("itemContent", {})
+                            tweet_res = item_content.get("tweet_results", {}).get("result", {})
+                            if tweet_res.get("__typename") == "TweetWithVisibilityResults":
+                                tweet_res = tweet_res.get("tweet", {})
 
-                        if "tweet" in entry_id:
-                            tweet_res = content.get("itemContent", {}).get("tweet_results", {}).get("result", {})
-                            if "tweet" in tweet_res:
-                                tweet_res = tweet_res["tweet"]
-
-                            rest_id = tweet_res.get("rest_id", "")
+                            rest_id = tweet_res.get("rest_id")
                             if rest_id and rest_id not in seen_ids:
                                 seen_ids.add(rest_id)
                                 page_new_count += 1
 
                                 legacy = tweet_res.get("legacy", {})
                                 user_res = tweet_res.get("core", {}).get("user_results", {}).get("result", {})
+                                if user_res.get("__typename") == "UserWithVisibilityResults":
+                                    user_res = user_res.get("user", {})
                                 user_core = user_res.get("core", {})
-
-                                # 提取作者头像（规范化为 _400x400 高清）
-                                avatar_url = user_res.get("avatar", {}).get("image_url", "") or legacy.get("profile_image_url_https", "")
-                                for _sfx in ("_normal", "_bigger", "_mini", "_reasonably_small"):
-                                    if _sfx in avatar_url:
-                                        avatar_url = avatar_url.replace(_sfx, "_400x400")
-                                        break
-
+                                
                                 name = user_core.get("name", "")
                                 screen_name = user_core.get("screen_name", "")
+                                
+                                avatar_url = user_res.get("avatar", {}).get("image_url", "")
+                                if not avatar_url:
+                                    avatar_url = user_res.get("legacy", {}).get("profile_image_url_https", "")
+                                if avatar_url:
+                                    for sfx in ("_normal", "_bigger", "_mini", "_reasonably_small"):
+                                        if sfx in avatar_url:
+                                            avatar_url = avatar_url.replace(sfx, "_400x400")
+                                            break
+
                                 full_text = legacy.get("full_text", "")
                                 fav_count = legacy.get("favorite_count", 0)
                                 retweet_count = legacy.get("retweet_count", 0)
@@ -489,14 +443,13 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                         "data": data
                     }, ensure_ascii=False).encode("utf-8"))
                     return
-                except Exception as ex:
+                except Exception:
                     pass
 
         if parsed.path == "/api/bookmarks/sync":
             # 实时从云端拉取全量历史书签（多页游标循环）并合并到本地数据库中
-            success, msg, remote_tweets = fetch_remote_bookmarks(max_pages=25)
+            success, msg, remote_tweets = fetch_remote_bookmarks(max_pages=CONFIG.max_sync_pages)
             if success:
-                # 读取已有数据进行合并去重
                 existing_map = {}
                 if os.path.exists(DB_FILE):
                     try:
@@ -506,7 +459,6 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                     except Exception:
                         pass
                 
-                # 新推文插入
                 new_add_count = 0
                 for rt in remote_tweets:
                     tid = rt.get("id")
@@ -552,7 +504,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 cat_counts[c] = cat_counts.get(c, 0) + 1
                 
             max_ratio = (max(cat_counts.values()) / total) if total > 0 and cat_counts else 0.0
-            needs_renormalize = len(projected) >= 30 or (len(projected) >= 10 and max_ratio > 0.40)
+            needs_renormalize = len(projected) >= CONFIG.renormalize_threshold or (len(projected) >= 10 and max_ratio > CONFIG.max_cluster_ratio)
             
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -623,7 +575,6 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/bookmarks/classify":
-            # 批量对本地 tweets_db.json 中未分类或云端实时书签进行归类
             classified_count = 0
             if os.path.exists(DB_FILE):
                 try:
@@ -631,7 +582,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                         tweets = json.load(f)
                     for t in tweets:
                         if t.get("category") in ("00_云端实时书签", "未分类", "") or "书签" in t.get("category", ""):
-                            cat, sub = rule_classify_tweet(t.get("body_raw", "") or t.get("snippet", ""), t.get("title", ""))
+                            cat, sub = classify_tweet_multi_tier(t.get("body_raw", "") or t.get("snippet", ""), t.get("title", ""))
                             t["category"] = cat
                             t["sub_category"] = sub
                             classified_count += 1
@@ -685,6 +636,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
 
         super().do_POST()
 
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Xcollect Twitter 智能聚合知识看板本地服务")
@@ -700,25 +652,39 @@ if __name__ == "__main__":
             os.path.join(SERVE_DIR, "js", "app.js"),
             DB_FILE
         ]
-        for rf in required_files:
-            if not os.path.exists(rf):
-                print(f"❌ 缺少关键文件: {rf}")
+        for fpath in required_files:
+            if not os.path.exists(fpath):
+                print(f"❌ 关键工程资产缺失: {fpath}")
                 sys.exit(1)
-            print(f"  ✓ 关键资产存在: {os.path.relpath(rf, os.path.dirname(__file__))}")
+            print(f"  ✓ 关键资产存在: {os.path.relpath(fpath, os.path.dirname(__file__))}")
+
+        # 检查 seed_data.json
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            print(f"  ✓ 种子推文数据源有效 (包含 {len(d)} 条推文)")
+                data = json.load(f)
+            if not isinstance(data, list):
+                print("❌ 种子推文数据源格式错误，应为列表")
+                sys.exit(1)
+            print(f"  ✓ 种子推文数据源有效 (包含 {len(data)} 条推文)")
         except Exception as e:
-            print(f"❌ 种子数据源解析失败: {e}")
+            print(f"❌ 种子数据解析失败: {e}")
             sys.exit(1)
+
         print("✅ 工程卫生冒烟自检完全通过！(All smoke checks passed)")
         sys.exit(0)
 
-    listen_port = args.port
-    print(f"[*] 启动 Twitter 知识看板与实时云端拉取中枢...")
-    print(f"[*] 监听端口: http://localhost:{listen_port}")
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", listen_port), CuratedPortalHandler) as httpd:
-        httpd.serve_forever()
+    class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+        daemon_threads = True
 
+    server = ThreadedHTTPServer((CONFIG.host, args.port), CuratedPortalHandler)
+    print("=" * 60)
+    print(f"🚀 Xcollect Twitter 看板与同步服务已在本地启动: http://{CONFIG.host}:{args.port}")
+    print(f"📂 静态托管资产目录: {SERVE_DIR}")
+    print(f"📦 数据持久化文件: {DB_FILE}")
+    print(f"⚙️  AI 算力引擎: {CONFIG.ai_provider} (模型: {CONFIG.custom_ai_model})")
+    print("=" * 60)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n🛑 服务正常停止")
+        server.server_close()
