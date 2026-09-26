@@ -2,8 +2,8 @@
   <img src="./public/images/logo.jpg" alt="Xcollect Logo" width="160px" style="border-radius: 28px; box-shadow: 0 10px 30px rgba(13, 148, 136, 0.4);">
 </p>
 
-<h1 align="center">Xcollect — Exploration Collector</h1>
-<p align="center"><b>从 Twitter / 𝕏 收藏开始，构建跨互联网的个人 Exploration Memory Layer</b></p>
+<h1 align="center">𝕏 书签智能聚合看板 (Xcollect)</h1>
+<p align="center"><b>Twitter / 𝕏 书签双向云同步中枢与极客知识资产库</b></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Cost-100%25_Free_Tier-brightgreen?style=for-the-badge&logo=cloudflare" alt="100% Free">
@@ -14,11 +14,11 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
 </p>
 
+> 基于 **Cloudflare Python Workers**、**Cloudflare D1** 边缘数据库与现代前端（深青 Petrol Teal 视觉系统）构建的 Twitter / 𝕏 书签实时双向同步中枢与知识资产库。**100% 运行于 Cloudflare 官方免费额度之内，零服务器成本，无需绑定信用卡。**
+
 > **X in Xcollect means Exploration, not X / Twitter.**
 >
-> 当前版本从 Twitter / 𝕏 书签切入：基于 **Cloudflare Python Workers**、**Cloudflare D1** 与 Local-First 架构，把收藏从“信息坟场”变成可重新检索、理解和组织的个人知识资产。
->
-> Twitter / 𝕏 是 **Adapter 01**，不是 Xcollect 的产品边界。
+> 当前版本从 Twitter / 𝕏 书签切入，但 Twitter / 𝕏 只是 **Adapter 01**，不是 Xcollect 的产品边界。长期目标是把 Bookmark、Star、Save、Watch Later 等分散在各平台的“弱未来意图”统一成可检索、可理解、可关联、可重新行动的个人 Exploration Memory。
 
 <p align="center">
   <img src="./public/images/feat_overview.png" alt="Xcollect 看板全景预览" width="100%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);">
@@ -26,9 +26,9 @@
 
 ---
 
-## 🧭 为什么叫 Xcollect？
+## 🧭 X = Exploration
 
-互联网上有很多不同的“收藏”动作：
+互联网上不同平台提供了不同的“收藏”动作：
 
 ```text
 Twitter Bookmark
@@ -44,23 +44,11 @@ Wishlist
    Exploration.Save
 ```
 
-它们表面上属于不同平台，实际表达的是同一种弱未来意图：
+它们表达的是相似的弱未来意图：
 
 > **“这个东西现在看起来有价值，我以后可能会回来。”**
 
-问题是，大多数平台只保存了 **item + timestamp**，却丢掉了更重要的信息：
-
-- 我当时为什么收藏它？
-- 当时正在探索什么问题？
-- 它和哪个项目有关？
-- 有没有出现更好的替代品？
-- 现在还值得重新看吗？
-
-Xcollect 的长期目标不是帮助你“收藏更多”，而是：
-
-> **让曾经觉得有价值的东西，未来还能被找到、理解、关联并重新行动。**
-
-因此核心路径是：
+Xcollect 的目标不是帮助你收藏更多，而是让曾经觉得有价值的东西，未来还能被找到、理解、关联并重新行动。
 
 ```text
 Encounter
@@ -78,51 +66,21 @@ Resurface
 Act
 ```
 
+### 🗺️ 路径图
+
+- ✅ **Phase 0 — Twitter / 𝕏 vertical slice**：书签同步、本地优先存储、AI 分类、二级标签、知识拓扑重整。
+- ⏭️ **Phase 1 — Source-neutral Core**：将 Twitter-specific 数据模型收敛成统一 `ExplorationItem`。
+- ⭐ **Phase 2 — GitHub Stars Adapter**：回答“我当时为什么 Star 它？现在还值得用吗？”
+- 🌐 **Phase 3 — Browser Capture**：Chrome / Chromium Extension、Userscript、右键 Save to Xcollect。
+- 📚 **Phase 4 — Reddit / YouTube / RSS / Hacker News / Podcasts / Email**。
+- 🗺️ **Phase 5 — Places / Wishlist / Travel 等非传统知识型 Exploration**。
+- 🔁 **Long-term — Resurfacing Engine**：把历史探索重新带回当前项目和当前决策上下文。
+
 完整设计见 [Xcollect Roadmap](./docs/ROADMAP.md)。
 
 ---
 
-## 🗺️ Roadmap
-
-Xcollect 正在从一个 Twitter / 𝕏 书签工具演化为 adapter-driven 的 Exploration 平台：
-
-```text
-                         Xcollect Core
-                              ▲
-                              │
-                    Acquisition Adapters
-          ┌───────────────────┼───────────────────┐
-          │                   │                   │
-       Twitter/X           GitHub              Browser
-       Adapter 01          Stars               Extension
-          │                   │                   │
-       Reddit             YouTube               RSS
-          └───────────────────┼───────────────────┘
-                              │
-                         Normalization
-                              │
-                           Enrichment
-                              │
-                     Knowledge Topology
-                              │
-                         Resurfacing
-```
-
-当前阶段：
-
-- ✅ **Phase 0 — Twitter / 𝕏 vertical slice**：书签同步、本地优先存储、AI 分类、二级标签、知识拓扑重整。
-- ⏭️ **Phase 1 — Source-neutral Core**：把 Twitter-specific 数据模型收敛成统一 `ExplorationItem`。
-- ⭐ **Phase 2 — GitHub Stars Adapter**：回答“我当时为什么 Star 它？现在还值得用吗？”
-- 🌐 **Phase 3 — Browser Capture**：Chrome / Chromium Extension、Userscript、右键 Save to Xcollect。
-- 📚 **Phase 4 — Reddit / YouTube / RSS / HN / Podcasts / Email**。
-- 🗺️ **Phase 5 — Places / Wishlist / Travel 等非传统知识型 Exploration**。
-- 🔁 **Long-term — Resurfacing Engine**：不仅收藏，还主动发现旧收藏与当前项目、当前探索主题之间的新关联。
-
-详见：[docs/ROADMAP.md](./docs/ROADMAP.md)
-
----
-
-## ✨ 当前核心特性：Twitter / 𝕏 Adapter 01
+## ✨ 核心特性
 
 - 🔄 **𝕏 官方书签双向云同步**：通过 Web 凭据直接对接 𝕏 官方 GraphQL API，在看板中实时同步、收藏或一键解除云端书签，告别昂贵的官方企业级 API。
 - 🏡 **本地优先哲学 (Local-First)**：**绝不强求用户搭建个人网站**。无需买域名、无需配置云端，运行 `python local_server.py` 即可在本地硬盘安全存放推文数据，在 localhost 极速浏览。
@@ -203,14 +161,14 @@ cp wrangler.example.jsonc wrangler.jsonc
 # 2. 创建 D1 数据库 (Cloudflare 账号内秒级免费生成，无需信用卡)
 npx wrangler d1 create x-bookmarks
 
-# 3. 将控制台输出中的 database_id 填入本地的 wrangler.jsonc 中
+# 3. 将控制台输出中的 database_id 填入本地的 wrangler.jsonc 中：
 # "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
-# 4. 初始化数据库表结构 (本地或远端)
+# 3. 初始化数据库表结构 (本地或远端)
 pnpm run d1:init:local
 pnpm run d1:init:remote
 
-# 5. (可选) 导入预设推文种子数据
+# 4. (可选) 导入预设推文种子数据 (包含通用精选技术 Demo 推文)
 pnpm run d1:seed:local
 pnpm run d1:seed:remote
 ```
@@ -228,7 +186,7 @@ pnpm run deploy
 
 ## 🔑 𝕏 平台凭据获取指南
 
-项目通过模拟官方 Web 端请求实现书签双向同步，仅需两个 Cookie 字段：
+项目通过模拟官方 Web 端请求实现书签双向同步，仅需两个只读 Cookie 字段：
 
 1. 在浏览器中打开并登录 [x.com](https://x.com)。
 2. 按 `F12` 打开开发者工具，切换到 **Application (应用程序)** -> **Cookies** -> `https://x.com`。
@@ -237,7 +195,7 @@ pnpm run deploy
    - `ct0`：你的 CSRF 安全令牌。
 4. 将它们粘贴保存至本地 `.env` 文件即可。
 
-> ⚠️ **安全说明**：这两个凭据仅用于本地服务或你私人部署的 Cloudflare Worker 代理向推特发送书签查询，`.env` 已被 `.gitignore` 严格忽略，不应提交到公开版本库。
+> ⚠️ **安全说明**：这两个凭据仅用于本地服务或你私人部署的 Cloudflare Worker 代理向推特发送官方书签查询，`.env` 已被 `.gitignore` 严格忽略，绝对不会提交到公开版本库。
 
 ---
 
@@ -245,23 +203,23 @@ pnpm run deploy
 
 ```text
 Xcollect/
-├── .env.example          # 敏感凭据脱敏契约模板
-├── config.toml           # 集中解耦配置文件
+├── .env.example          # 敏感凭据脱敏契约模板 (1:1 影子镜像)
+├── config.toml           # 集中解耦配置文件 (端口、运行参数等)
 ├── wrangler.jsonc        # Cloudflare Python Workers 配置文件
 ├── package.json          # pnpm 包管理器与脚本入口
-├── local_server.py       # 本地独立全功能 Python 服务
+├── local_server.py       # 本地独立全功能 Python 服务 (支持 --check 自验)
 ├── docs/
 │   └── ROADMAP.md        # Exploration 平台长期路径图
 ├── src/
 │   └── entry.py          # Cloudflare Python Worker 边缘业务网关与 D1 交互入口
-├── public/               # 前端静态看板资产
-│   ├── index.html
-│   ├── css/
-│   └── js/
+├── public/               # 前端静态看板资产 (Petrol Teal 视觉系统)
+│   ├── index.html        # 主看板 SPA 页面
+│   ├── css/              # 模块化样式 (cards, layout, modal, theme)
+│   └── js/               # 模块化逻辑 (api, app, render)
 └── scripts/
-    ├── schema.sql
-    ├── seed_data.json
-    └── seed_d1.py
+    ├── schema.sql        # Cloudflare D1 数据库 DDL 表结构
+    ├── seed_data.json    # 精选预置技术推文种子数据
+    └── seed_d1.py        # D1 种子数据一键迁移与 SQL 生成工具
 ```
 
 ---
@@ -269,11 +227,10 @@ Xcollect/
 ## 🤝 参与贡献与开发契约
 
 本项目严格遵循 [Agent Relay Hygiene (工程卫生契约)](./AGENTS.md)：
-
 1. **单一包管理器**：严格使用 `pnpm`，禁止使用 `npm` 或 `yarn`。
 2. **12-Factor 双轨分工**：敏感机密严格收敛在 `.env`，非敏感参数统一由 `config.toml` 解耦。
 3. **闭环自验**：每次提交修改必须保证 `python local_server.py --check` 通过。
-4. **Source-neutral direction**：新增能力优先考虑是否属于 Xcollect Core，还是某个 source adapter，避免把核心继续耦合到 Twitter / 𝕏。
+4. **Source-neutral direction**：新增能力优先判断属于 Xcollect Core 还是某个 source adapter，避免把核心继续耦合到 Twitter / 𝕏。
 
 ---
 
