@@ -268,12 +268,22 @@ def fetch_remote_bookmarks(max_pages=None):
         return False, "请先配置 X 账户凭证", []
 
     features = {
-        "rweb_video_screen_enabled": False,
-        "rweb_cashtags_enabled": True,
-        "profile_label_improvements_pcf_label_in_post_enabled": True,
+        "graphql_timeline_v2_bookmark_timeline": True,
+        "responsive_web_graphql_exclude_directive_enabled": True,
+        "verified_phone_label_enabled": False,
+        "creator_subscriptions_tweet_preview_api_enabled": True,
         "responsive_web_graphql_timeline_navigation_enabled": True,
+        "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+        "c9s_tweet_anatomy_moderator_badge_enabled": True,
+        "tweetypie_unmention_optimization_enabled": True,
+        "responsive_web_edit_tweet_api_enabled": True,
+        "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
         "view_counts_everywhere_api_enabled": True,
-        "longform_notetweets_consumption_enabled": True
+        "longform_notetweets_consumption_enabled": True,
+        "responsive_web_twitter_article_tweet_consumption_enabled": True,
+        "longform_notetweets_rich_text_read_enabled": True,
+        "longform_notetweets_inline_media_enabled": True,
+        "responsive_web_enhance_cards_enabled": False
     }
 
     cursor = None
@@ -667,6 +677,22 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ 单一真源配置校验异常: {e}")
             sys.exit(1)
+
+        # 检查配置解析契约：多行 TOML 数组不能退化为字符串 "["
+        if not isinstance(CONFIG.default_categories, list) or len(CONFIG.default_categories) < 5:
+            print(f"❌ default_categories 解析异常: {CONFIG.default_categories!r}")
+            sys.exit(1)
+        print(f"  ✓ default_categories 多行数组解析有效 ({len(CONFIG.default_categories)} 项)")
+
+        if not isinstance(CONFIG.workers_ai_models, list) or not CONFIG.workers_ai_models:
+            print(f"❌ workers_ai_models 解析异常: {CONFIG.workers_ai_models!r}")
+            sys.exit(1)
+        print(f"  ✓ workers_ai_models 多行数组解析有效 ({len(CONFIG.workers_ai_models)} 项)")
+
+        if not CONFIG.query_id_bookmarks:
+            print("❌ Bookmarks queryId fallback 未配置")
+            sys.exit(1)
+        print("  ✓ Bookmarks queryId 动态解析/fallback 配置存在")
 
         # 检查 seed_data.json
         try:
