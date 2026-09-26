@@ -66,9 +66,60 @@ def parse_simple_toml(content: str) -> dict:
     return data
 
 
+DEFAULT_CONFIG_TOML = """
+[app]
+name = "Xcollect"
+title = "𝕏 书签智能聚合看板"
+version = "1.0.0"
+
+[server]
+port = 8089
+host = "127.0.0.1"
+
+[runtime]
+timeout = 30.0
+max_retries = 3
+cache_seconds = 60
+max_sync_pages = 25
+
+[features]
+enable_cloud_sync = true
+enable_offline_cache = true
+
+[twitter]
+bearer_token = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+query_id_bookmarks = "XD0ViOeSOW4YoeNTGjVaYw"
+query_id_create = "aoDbu3RHznuiSkQ9aNM67Q"
+query_id_delete = "Wlmlj2-xzyS1GN3a6cj-mQ"
+
+[taxonomy]
+default_categories = [
+  "01_人工智能与Agent",
+  "02_技术架构与开发",
+  "03_开源精选与工具",
+  "04_产品设计与思考",
+  "05_前沿资讯与研读"
+]
+
+[ai]
+provider = "auto"
+custom_api_base = "https://api.deepseek.com/v1"
+custom_model = "deepseek-chat"
+workers_ai_models = [
+  "@cf/meta/llama-3.1-8b-instruct-fast",
+  "@cf/meta/llama-3.2-3b-instruct",
+  "@cf/meta/llama-3.2-1b-instruct"
+]
+
+[topology]
+renormalize_threshold = 30
+max_cluster_ratio = 0.40
+"""
+
+
 class AppConfig:
     def __init__(self):
-        # 1. 加载 config.toml
+        # 1. 加载 config.toml (在 Cloudflare Worker 中若无物理文件则自动无缝回退至默认配置)
         toml_content = ""
         if CONFIG_TOML_PATH.exists():
             try:
@@ -76,6 +127,8 @@ class AppConfig:
                     toml_content = f.read()
             except Exception:
                 pass
+        if not toml_content.strip():
+            toml_content = DEFAULT_CONFIG_TOML
 
         parsed = parse_simple_toml(toml_content)
 
@@ -92,10 +145,10 @@ class AppConfig:
 
         # Twitter Web API 协议常量
         twitter_cfg = parsed.get("twitter", {})
-        self.twitter_bearer = str(twitter_cfg.get("bearer_token", ""))
-        self.query_id_bookmarks = str(twitter_cfg.get("query_id_bookmarks", ""))
-        self.query_id_create = str(twitter_cfg.get("query_id_create", ""))
-        self.query_id_delete = str(twitter_cfg.get("query_id_delete", ""))
+        self.twitter_bearer = str(twitter_cfg.get("bearer_token", "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"))
+        self.query_id_bookmarks = str(twitter_cfg.get("query_id_bookmarks", "XD0ViOeSOW4YoeNTGjVaYw"))
+        self.query_id_create = str(twitter_cfg.get("query_id_create", "aoDbu3RHznuiSkQ9aNM67Q"))
+        self.query_id_delete = str(twitter_cfg.get("query_id_delete", "Wlmlj2-xzyS1GN3a6cj-mQ"))
 
         # 分类专区
         taxonomy_cfg = parsed.get("taxonomy", {})

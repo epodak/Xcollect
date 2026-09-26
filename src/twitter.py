@@ -121,7 +121,6 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
         }
         q_str = urllib.parse.urlencode(params)
         x_url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{q_str}"
-
         h = build_x_headers(auth_token, ct0)
         init = JsObject.new()
         init.method = "GET"
@@ -129,6 +128,8 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
 
         resp = await js_fetch(x_url, init)
         raw_text = await resp.text()
+        if getattr(resp, "status", 200) not in (200, 201):
+            raise RuntimeError(f"X API 返回 HTTP {getattr(resp, 'status', 0)}: {raw_text[:200]}")
         raw_data = json.loads(raw_text)
 
         instructions = (
