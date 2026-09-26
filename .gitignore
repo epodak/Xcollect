@@ -1,0 +1,44 @@
+# ==============================================================================
+# Git 忽略规则 (.gitignore) - 遵循 Agent Relay Hygiene 规范
+# ==============================================================================
+
+# 1. 敏感机密隔离 (绝不上库)
+.env
+.env.*
+!.env.example
+*.local.toml
+config.local.toml
+
+# 2. 严格 pnpm 锁文件保护与依赖防污染
+package-lock.json
+yarn.lock
+node_modules/
+
+# 3. Cloudflare & Wrangler 本地运行时状态
+.wrangler/
+.mf/
+
+# 4. Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# 5. 系统与编辑器缓存
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# 6. 临时文件与日志
+temp/
+scratch/
+scripts/seed.sql
+*.log
+

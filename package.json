@@ -1,0 +1,29 @@
+{
+  "name": "x-collect",
+  "version": "1.0.0",
+  "description": "Twitter / X 优质推文聚合知识看板 · X 书签双向云同步中枢",
+  "license": "MIT",
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "serve:local": "python local_server.py",
+    "check": "python local_server.py --check",
+    "d1:init:local": "wrangler d1 execute x-bookmarks --local --file=scripts/schema.sql",
+    "d1:init:remote": "wrangler d1 execute x-bookmarks --remote --file=scripts/schema.sql",
+    "d1:seed:local": "python scripts/seed_d1.py --local",
+    "d1:seed:remote": "python scripts/seed_d1.py --remote",
+    "preinstall": "npx only-allow pnpm"
+  },
+  "devDependencies": {
+    "wrangler": "^3.114.0"
+  },
+  "keywords": [
+    "twitter",
+    "x-bookmarks",
+    "cloudflare-workers",
+    "python-workers",
+    "cloudflare-d1",
+    "knowledge-base"
+  ]
+}

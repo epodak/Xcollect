@@ -1,0 +1,190 @@
+/* Twitter Curated Portal - Design Tokens, Animations & Base Theme */
+    :root {
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      
+      /* 大笃深青 Petrol Teal 设计系统令牌 */
+      --c-bg: 7 16 15;
+      --c-surface: 13 26 24;
+      --c-surface-hover: 18 36 33;
+      --c-sunken: 4 11 10;
+      --c-fg: 233 241 239;
+      --c-fg-muted: 158 180 176;
+      --c-fg-subtle: 108 130 126;
+      --c-line: 28 45 42;
+      --c-line-strong: 44 66 61;
+      --c-brand: 64 209 192;
+      --c-brand-bright: 125 232 218;
+      --c-brand-soft: 12 40 37;
+      --c-brand-deep: 6 26 24;
+      --c-accent: 240 181 46;
+      --c-accent-soft: 44 33 9;
+      --c-danger: 239 68 68;
+      --c-success: 34 197 94;
+    }
+
+    /* ============ 浅色主题 (Light Theme) 令牌 ============ */
+    html.light {
+      --c-bg: 245 247 246;
+      --c-surface: 255 255 255;
+      --c-surface-hover: 244 247 246;
+      --c-sunken: 238 242 240;
+      --c-fg: 11 19 16;
+      --c-fg-muted: 58 74 69;
+      --c-fg-subtle: 105 120 115;
+      --c-line: 227 232 229;
+      --c-line-strong: 198 210 204;
+      --c-brand: 13 148 136;
+      --c-brand-bright: 15 118 110;
+      --c-brand-soft: 214 244 239;
+      --c-brand-deep: 17 94 89;
+      --c-accent: 217 145 20;
+      --c-accent-soft: 253 238 198;
+      --c-danger: 220 38 38;
+      --c-success: 22 163 74;
+    }
+
+    /* ============ 全局视觉润色 ============ */
+    ::selection {
+      background: rgb(var(--c-brand) / 0.28);
+      color: rgb(var(--c-fg));
+    }
+
+    /* 细滚动条（与主题联动）与视口槽位绝对锁定防抖 */
+    html {
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+      scrollbar-color: rgb(var(--c-line-strong)) transparent;
+    }
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgb(var(--c-line-strong));
+      border-radius: 999px;
+      border: 3px solid transparent;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgb(var(--c-fg-subtle));
+      border: 3px solid transparent;
+      background-clip: padding-box;
+    }
+
+    /* 键盘可达性焦点环 */
+    button:focus-visible,
+    a:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 2px solid rgb(var(--c-brand) / 0.55);
+      outline-offset: 2px;
+      border-radius: 6px;
+    }
+
+    /* 主题切换平滑过渡（仅颜色属性，不干扰布局/位移动画） */
+    body,
+    header,
+    aside.sidebar,
+    .control-bar,
+    .modal-card,
+    .mobile-category-bar,
+    .empty-state {
+      transition: background-color 0.28s ease, border-color 0.28s ease, color 0.2s ease;
+    }
+
+    /* 关键帧：spin 供同步按钮加载动画使用（此前 JS 引用但未定义，属静默失效 bug） */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 卡片入场动画（backwards：只在延迟期套用起始帧，结束后不覆盖 hover 位移） */
+    .tweet-card {
+      animation: cardIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    }
+
+    /* 空状态 */
+    .empty-icon {
+      font-size: 2.8rem;
+      line-height: 1;
+      margin-bottom: 1rem;
+      opacity: 0.55;
+      filter: grayscale(0.3);
+    }
+    .empty-state h3 {
+      color: rgb(var(--c-fg-muted));
+      font-weight: 600;
+    }
+
+    /* ============ 浅色主题针对性微调 ============ */
+    html.light body {
+      background-image: none; /* 浅色保持纯净，不要雾感光晕 */
+    }
+    html.light header {
+      background: rgb(255 255 255 / 0.86);
+      box-shadow: 0 1px 3px rgb(16 42 38 / 0.07);
+    }
+    html.light .brand-logo {
+      box-shadow: 0 4px 14px rgb(var(--c-brand) / 0.35);
+    }
+    html.light .tweet-card:hover {
+      border-color: rgb(var(--c-brand) / 0.55);
+      box-shadow: 0 16px 36px -10px rgb(var(--c-brand) / 0.22), 0 4px 10px -4px rgb(16 42 38 / 0.1);
+    }
+    html.light .control-bar,
+    html.light .modal-card {
+      box-shadow: 0 1px 2px rgb(16 42 38 / 0.05), 0 1px 3px rgb(16 42 38 / 0.04);
+    }
+    html.light .modal-card {
+      box-shadow: 0 24px 60px -12px rgb(16 42 38 / 0.3);
+    }
+    html.light .btn-action.btn-twitter {
+      color: #0284c7;
+    }
+    html.light .btn-action.btn-twitter:hover {
+      background: rgba(2, 132, 199, 0.1);
+      border-color: #0284c7;
+      color: #0369a1;
+    }
+    html.light #toastMsg {
+      box-shadow: 0 12px 32px rgb(16 42 38 / 0.16);
+    }
+    html.light .search-box input:focus {
+      box-shadow: 0 0 0 3px rgb(var(--c-brand) / 0.18);
+    }
+
+    /* 尊重系统「减少动态效果」偏好 */
+    @media (prefers-reduced-motion: reduce) {
+      .tweet-card {
+        animation: none !important;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: rgb(var(--c-bg));
+      background-image:
+        radial-gradient(900px 420px at 85% -5%, rgb(var(--c-brand) / 0.045), transparent 65%),
+        radial-gradient(700px 380px at -5% 105%, rgb(var(--c-brand) / 0.035), transparent 60%);
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      color: rgb(var(--c-fg));
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
