@@ -60,16 +60,16 @@ def get_kv_binding(env):
     return None
 
 
-async def load_tweets(env) -> dict:
+async def load_tweets(env, bypass_cache: bool = False) -> dict:
     """加载推文数据（级联读取：边缘内存 -> D1 数据库 -> KV 存储）。"""
     global _MEM_CACHE_TWEETS
-    if _MEM_CACHE_TWEETS is not None:
+    if _MEM_CACHE_TWEETS is not None and not bypass_cache:
         return _MEM_CACHE_TWEETS
 
     # 1. 优先读取 Cloudflare D1 数据库
     if hasattr(env, "DB"):
         try:
-            stmt = env.DB.prepare("SELECT * FROM tweets ORDER BY likes DESC LIMIT 1000")
+            stmt = env.DB.prepare("SELECT * FROM tweets ORDER BY likes DESC")
             db_res = await stmt.all()
             rows = db_res.results
             tweets_list = []
@@ -199,10 +199,37 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
 
     if hasattr(env, "DB"):
         sql_full = """
-        INSERT OR REPLACE INTO tweets (
+        INSERT INTO tweets (
             id, filename, category, sub_category, title, author, username, url, created_at,
             likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar, classify_status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            filename = excluded.filename,
+            title = excluded.title,
+            author = excluded.author,
+            username = excluded.username,
+            url = excluded.url,
+            created_at = excluded.created_at,
+            likes = excluded.likes,
+            retweets = excluded.retweets,
+            views = excluded.views,
+            has_media = excluded.has_media,
+            media_type = excluded.media_type,
+            images = excluded.images,
+            videos = excluded.videos,
+            snippet = excluded.snippet,
+            body_raw = excluded.body_raw,
+            body_html = excluded.body_html,
+            avatar = excluded.avatar,
+            category = CASE
+                WHEN tweets.category IS NULL OR tweets.category = '' OR tweets.category = '未分类'
+                    OR tweets.category = '00_云端实时书签'
+                THEN excluded.category ELSE tweets.category END,
+            sub_category = CASE
+                WHEN tweets.sub_category IS NULL OR tweets.sub_category = ''
+                    OR tweets.sub_category = '精选'
+                THEN excluded.sub_category ELSE tweets.sub_category END,
+            classify_status = COALESCE(tweets.classify_status, excluded.classify_status)
         """
         sql_no_status = """
         INSERT OR REPLACE INTO tweets (
