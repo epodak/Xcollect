@@ -2,11 +2,14 @@
 # Git 忽略规则 (.gitignore) - 遵循 Agent Relay Hygiene 规范
 # ==============================================================================
 
-# 1. 敏感机密隔离 (绝不上库)
+# 1. 敏感机密与私有部署隔离 (绝不上库)
 .env
 .env.*
 .dev.vars
 !.env.example
+wrangler.jsonc
+wrangler.toml
+!wrangler.example.jsonc
 *.local.toml
 config.local.toml
 

@@ -95,12 +95,15 @@ python local_server.py
 pnpm install
 ```
 
-#### ② 创建并绑定 Cloudflare D1 数据库
+#### ② 配置 Cloudflare 与绑定 D1 数据库
 ```bash
-# 1. 创建 D1 数据库 (Cloudflare 账号内秒级免费生成，无需信用卡)
+# 1. 复制配置文件模板为本地私有配置 (wrangler.jsonc 已被 .gitignore 隔离，绝不上库)
+cp wrangler.example.jsonc wrangler.jsonc
+
+# 2. 创建 D1 数据库 (Cloudflare 账号内秒级免费生成，无需信用卡)
 npx wrangler d1 create x-bookmarks
 
-# 2. 将控制台输出中的 database_id 填入 wrangler.jsonc 中：
+# 3. 将控制台输出中的 database_id 填入本地的 wrangler.jsonc 中：
 # "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # 3. 初始化数据库表结构 (本地或远端)

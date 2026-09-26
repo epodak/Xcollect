@@ -1,0 +1,44 @@
+/**
+ * ==============================================================================
+ * Cloudflare Python Workers 配置文件模板 (wrangler.example.jsonc)
+ *
+ * 遵循 Agent Relay Hygiene 规范：
+ * - 本文件随开源仓库提交，作为社区部署模板 (1:1 影子镜像)
+ * - 首次部署前请复制为本地私有配置：cp wrangler.example.jsonc wrangler.jsonc
+ * - 本地 wrangler.jsonc 已被 .gitignore 忽略，绝不会意外泄露个人域名与生产资源
+ * ==============================================================================
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "x-collect",
+  "main": "src/entry.py",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": [
+    "python_workers"
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "x-bookmarks",
+      "database_id": "your-d1-database-id-here"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  }
+  // 可选：如需绑定自定义域名，取消下方注释并修改为您的域名
+  // "routes": [
+  //   {
+  //     "pattern": "your-domain.com",
+  //     "custom_domain": true
+  //   }
+  // ]
+}
