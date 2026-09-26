@@ -66,69 +66,25 @@ def parse_simple_toml(content: str) -> dict:
     return data
 
 
-DEFAULT_CONFIG_TOML = """
-[app]
-name = "Xcollect"
-title = "𝕏 书签智能聚合看板"
-version = "1.0.0"
-
-[server]
-port = 8089
-host = "127.0.0.1"
-
-[runtime]
-timeout = 30.0
-max_retries = 3
-cache_seconds = 60
-max_sync_pages = 25
-
-[features]
-enable_cloud_sync = true
-enable_offline_cache = true
-
-[twitter]
-bearer_token = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
-query_id_bookmarks = "XD0ViOeSOW4YoeNTGjVaYw"
-query_id_create = "aoDbu3RHznuiSkQ9aNM67Q"
-query_id_delete = "Wlmlj2-xzyS1GN3a6cj-mQ"
-
-[taxonomy]
-default_categories = [
-  "01_人工智能与Agent",
-  "02_技术架构与开发",
-  "03_开源精选与工具",
-  "04_产品设计与思考",
-  "05_前沿资讯与研读"
-]
-
-[ai]
-provider = "auto"
-custom_api_base = "https://api.deepseek.com/v1"
-custom_model = "deepseek-chat"
-workers_ai_models = [
-  "@cf/meta/llama-3.1-8b-instruct-fast",
-  "@cf/meta/llama-3.2-3b-instruct",
-  "@cf/meta/llama-3.2-1b-instruct"
-]
-
-[topology]
-renormalize_threshold = 30
-max_cluster_ratio = 0.40
-"""
-
-
 class AppConfig:
     def __init__(self):
-        # 1. 加载 config.toml (在 Cloudflare Worker 中若无物理文件则自动无缝回退至默认配置)
+        # 1. 加载 config.toml
         toml_content = ""
+        # 优先从本地磁盘读取单一真源 config.toml
         if CONFIG_TOML_PATH.exists():
             try:
                 with open(CONFIG_TOML_PATH, "r", encoding="utf-8") as f:
                     toml_content = f.read()
             except Exception:
                 pass
+
+        # 若处于无本地磁盘的 Cloudflare Worker 边缘环境，从单一真源编译镜像 _config_data.py 加载
         if not toml_content.strip():
-            toml_content = DEFAULT_CONFIG_TOML
+            try:
+                from _config_data import CONFIG_TOML_CONTENT
+                toml_content = CONFIG_TOML_CONTENT
+            except ImportError:
+                pass
 
         parsed = parse_simple_toml(toml_content)
 
@@ -143,40 +99,30 @@ class AppConfig:
         self.cache_seconds = int(runtime_cfg.get("cache_seconds", 60))
         self.max_sync_pages = int(runtime_cfg.get("max_sync_pages", 25))
 
-        # Twitter Web API 协议常量
+        # Twitter Web API 协议常量 (严格来自 config.toml 单一真源)
         twitter_cfg = parsed.get("twitter", {})
-        self.twitter_bearer = str(twitter_cfg.get("bearer_token", "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"))
-        self.query_id_bookmarks = str(twitter_cfg.get("query_id_bookmarks", "XD0ViOeSOW4YoeNTGjVaYw"))
-        self.query_id_create = str(twitter_cfg.get("query_id_create", "aoDbu3RHznuiSkQ9aNM67Q"))
-        self.query_id_delete = str(twitter_cfg.get("query_id_delete", "Wlmlj2-xzyS1GN3a6cj-mQ"))
+        self.twitter_bearer = str(twitter_cfg.get("bearer_token", ""))
+        self.query_id_bookmarks = str(twitter_cfg.get("query_id_bookmarks", ""))
+        self.query_id_create = str(twitter_cfg.get("query_id_create", ""))
+        self.query_id_delete = str(twitter_cfg.get("query_id_delete", ""))
 
-        # 分类专区
+        # 分类专区 (严格来自 config.toml 单一真源)
         taxonomy_cfg = parsed.get("taxonomy", {})
-        self.default_categories = taxonomy_cfg.get("default_categories", [
-            "01_人工智能与Agent",
-            "02_技术架构与开发",
-            "03_开源精选与工具",
-            "04_产品设计与思考",
-            "05_前沿资讯与研读"
-        ])
+        self.default_categories = list(taxonomy_cfg.get("default_categories", []))
 
-        # AI 算力配置
+        # AI 算力配置 (严格来自 config.toml 单一真源)
         ai_cfg = parsed.get("ai", {})
         self.ai_provider = str(ai_cfg.get("provider", "auto"))
         self.custom_ai_base = str(ai_cfg.get("custom_api_base", "https://api.deepseek.com/v1"))
         self.custom_ai_model = str(ai_cfg.get("custom_model", "deepseek-chat"))
-        self.workers_ai_models = ai_cfg.get("workers_ai_models", [
-            "@cf/meta/llama-3.1-8b-instruct-fast",
-            "@cf/meta/llama-3.2-3b-instruct",
-            "@cf/meta/llama-3.2-1b-instruct"
-        ])
+        self.workers_ai_models = list(ai_cfg.get("workers_ai_models", []))
 
-        # 拓扑重整化
+        # 拓扑重整化 (严格来自 config.toml 单一真源)
         topology_cfg = parsed.get("topology", {})
         self.renormalize_threshold = int(topology_cfg.get("renormalize_threshold", 30))
         self.max_cluster_ratio = float(topology_cfg.get("max_cluster_ratio", 0.40))
 
-        # 2. 读取解耦的 Prompt 外部资产
+        # 2. 读取解耦的 Prompt 外部资产 (单一真源来自 prompts/classify_system.txt)
         self.classify_prompt_template = ""
         if PROMPT_CLASSIFY_PATH.exists():
             try:
@@ -184,18 +130,13 @@ class AppConfig:
                     self.classify_prompt_template = f.read().strip()
             except Exception:
                 pass
+
         if not self.classify_prompt_template:
-            # 契约安全保护：若资产文件无法读取时的备选模版
-            self.classify_prompt_template = (
-                "你是一个科技前沿推文的自适应知识拓扑与分类专家。\n"
-                "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n\n"
-                "【目前已有的专区列表】：\n{existing_categories}\n\n"
-                "【分类与自适应原则】：\n"
-                "1. 优先复用：必须从上述【已有专区列表】中选择最匹配的专区名称，保持知识拓扑基准惯性。\n"
-                "2. 细分提炼：为推文提炼一个 4-10 字的 sub_category（如：Coding Agent/智能编程、Prompt与Skills工程、云原生与边缘计算等）。\n\n"
-                "必须严格只输出 JSON 对象：\n"
-                "{{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}}"
-            )
+            try:
+                from _config_data import PROMPT_CLASSIFY_CONTENT
+                self.classify_prompt_template = PROMPT_CLASSIFY_CONTENT.strip()
+            except ImportError:
+                pass
 
         # 3. 读取本地私有敏感凭据 (.env)
         self.x_auth_token = os.environ.get("X_AUTH_TOKEN", "")

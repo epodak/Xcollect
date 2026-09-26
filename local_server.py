@@ -658,6 +658,16 @@ if __name__ == "__main__":
                 sys.exit(1)
             print(f"  ✓ 关键资产存在: {os.path.relpath(fpath, os.path.dirname(__file__))}")
 
+        # 检查单一真源配置编译同步状态
+        try:
+            from scripts.sync_config import sync_config
+            if not sync_config(check_only=True):
+                print("⚠️ 正在自动将单一真源 config.toml 投影同步至 src/_config_data.py...")
+                sync_config(check_only=False)
+        except Exception as e:
+            print(f"❌ 单一真源配置校验异常: {e}")
+            sys.exit(1)
+
         # 检查 seed_data.json
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:

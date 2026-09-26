@@ -5,8 +5,10 @@
   "license": "MIT",
   "packageManager": "pnpm@10.17.1",
   "scripts": {
-    "predev": "node -e \"const fs = require('fs'); if (fs.existsSync('.env')) fs.copyFileSync('.env', '.dev.vars');\"",
+    "sync:config": "python scripts/sync_config.py",
+    "predev": "python scripts/sync_config.py && node -e \"const fs = require('fs'); if (fs.existsSync('.env')) fs.copyFileSync('.env', '.dev.vars');\"",
     "dev": "wrangler dev",
+    "predeploy": "python scripts/sync_config.py",
     "deploy": "wrangler deploy",
     "serve:local": "python local_server.py",
     "check": "python local_server.py --check",
