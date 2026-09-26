@@ -296,8 +296,6 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
 
                 details["d1_written"] += 1
 
-            saved_to_d1 = details["d1_written"] == len(tweets)
-
             count_stmt = env.DB.prepare("SELECT COUNT(*) AS total FROM tweets")
             count_res = await count_stmt.all()
             count_rows = count_res.results
@@ -307,6 +305,12 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
                     details["d1_row_count"] = int(row.get("total", 0) or 0)
                 else:
                     details["d1_row_count"] = int(getattr(row, "total", 0) or 0)
+
+            # “D1 已确认”要求写入条数完整且 COUNT(*) read-back 成功。
+            saved_to_d1 = (
+                details["d1_written"] == len(tweets)
+                and details["d1_row_count"] is not None
+            )
         except Exception as db_err:
             details["d1_error"] = str(db_err)
             print("D1 批量保存写入异常:", details["d1_error"])
