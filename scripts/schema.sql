@@ -21,9 +21,19 @@ CREATE TABLE IF NOT EXISTS tweets (
     snippet TEXT,
     body_raw TEXT,
     body_html TEXT,
-    avatar TEXT
+    avatar TEXT,
+    classify_status TEXT DEFAULT 'settled'
 );
 
 CREATE INDEX IF NOT EXISTS idx_tweets_category ON tweets (category);
 CREATE INDEX IF NOT EXISTS idx_tweets_likes ON tweets (likes DESC);
 CREATE INDEX IF NOT EXISTS idx_tweets_created_at ON tweets (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tweets_classify_status ON tweets (classify_status);
+
+-- 键值元数据表 (用于存储全局拓扑基准、重整化版本等)
+CREATE TABLE IF NOT EXISTS meta_kv (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT
+);
+

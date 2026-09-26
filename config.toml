@@ -33,3 +33,17 @@ default_categories = [
   "04_产品设计与思考",
   "05_前沿资讯与研读"
 ]
+
+[ai]
+# AI 算力调度策略: "auto" (自动降级: 自定义API -> Cloudflare Workers AI -> 本地规则兜底)
+# 可选值: "auto" | "custom" | "workers_ai" | "rule"
+provider = "auto"
+custom_api_base = "https://api.deepseek.com/v1"
+custom_model = "deepseek-chat"
+
+[topology]
+# 知识拓扑重整化阈值：未固化条目达到此数量触发重整化分析
+renormalize_threshold = 30
+# 单一专区占比上限（超过此比例视为过载密集簇，建议向下分裂）
+max_cluster_ratio = 0.40
+

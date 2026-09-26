@@ -137,6 +137,14 @@ WORKERS_AI_CANDIDATE_MODELS = [
     "@cf/meta/llama-3.2-1b-instruct",
 ]
 
+def get_kv_binding(env):
+    """自适应探测 Cloudflare KV 存储绑定"""
+    if hasattr(env, "KV"):
+        return env.KV
+    if hasattr(env, "KV_BOOKMARKS"):
+        return env.KV_BOOKMARKS
+    return None
+
 async def ai_classify_tweet(text, title="", existing_categories=None, env=None):
     if not existing_categories:
         existing_categories = VALID_CATEGORIES
@@ -147,23 +155,67 @@ async def ai_classify_tweet(text, title="", existing_categories=None, env=None):
         active_cats = list(VALID_CATEGORIES)
         
     cats_prompt_list = "\n".join([f"- {c}" for c in active_cats])
-    
+    content_snippet = (f"标题: {title}\n正文: {text}")[:1400]
+    system_prompt = (
+        "你是一个科技前沿推文的自适应知识分类专家。\n"
+        "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n\n"
+        f"【目前已有的专区列表】：\n{cats_prompt_list}\n\n"
+        "【分类惯性约束】：必须从上述【已有专区列表】中选择最匹配的专区名称；\n"
+        "【细分提炼】：为推文提取一个 4-10 字的 sub_category 二级标签。\n"
+        "必须严格只输出 JSON 对象：\n"
+        "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
+    )
+
+    # 1. 优先梯队：检测用户是否配置了自定义大模型 API (DeepSeek / OpenAI 兼容端点)
+    custom_key = ""
+    custom_base = "https://api.deepseek.com/v1"
+    custom_model = "deepseek-chat"
+    if env:
+        try:
+            custom_key = getattr(env, "CUSTOM_AI_API_KEY", "") or getattr(env, "AI_API_KEY", "") or ""
+            custom_base = getattr(env, "CUSTOM_AI_API_BASE", "") or getattr(env, "AI_API_BASE", "") or "https://api.deepseek.com/v1"
+            custom_model = getattr(env, "CUSTOM_AI_MODEL", "") or getattr(env, "AI_MODEL", "") or "deepseek-chat"
+        except Exception:
+            pass
+
+    if custom_key:
+        try:
+            req_init = JsObject.new()
+            req_init.method = "POST"
+            headers = Headers.new()
+            headers.set("Content-Type", "application/json")
+            headers.set("Authorization", f"Bearer {custom_key}")
+            req_init.headers = headers
+            req_init.body = json.dumps({
+                "model": custom_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content_snippet}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 120
+            })
+            resp = await js_fetch(f"{custom_base.rstrip('/')}/chat/completions", req_init)
+            if resp.status == 200:
+                resp_text = await resp.text()
+                data = json.loads(resp_text)
+                ai_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                m = re.search(r"\{.*?\}", ai_text, re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    cat = (parsed.get("category", "") or "").strip()
+                    sub = (parsed.get("sub_category", "") or "").strip()
+                    for ex in active_cats:
+                        if ex.lower() == cat.lower() or ex.split("_", 1)[-1].lower() == cat.split("_", 1)[-1].lower():
+                            cat = ex
+                            break
+                    if cat in active_cats:
+                        return cat, (sub or "精选研读")
+        except Exception as custom_err:
+            print("用户自定义大模型调用失败，自动降级至 Workers AI 免费额度:", str(custom_err))
+
+    # 2. 第二梯队：Cloudflare Workers AI 免费候选模型级联容灾
     if env and hasattr(env, "AI"):
-        content_snippet = (f"标题: {title}\n正文: {text}")[:1400]
-        system_prompt = (
-            "你是一个科技前沿推文的自适应知识拓扑与分类专家。\n"
-            "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n\n"
-            f"【目前已有的专区列表】：\n{cats_prompt_list}\n\n"
-            "【分类与自适应扩充原则】：\n"
-            "1. 优先复用：如果推文主题与上述【已有专区列表】高度匹配，请直接复用该专区名称。\n"
-            "2. 开放扩充（重要）：如果推文明确属于一个全新的技术/业务分支（例如：具身智能与机器人、Web3与加密经济、前沿硬件/单片机、脑机接口/生命科技等），且现有专区无法合理容纳，【请自主定义一个全新的专业专区名称】！\n"
-            "   - 命名格式：如果现有专区有编号前缀，请自动顺延编号（例如当前已到05_，新专区可命名为 '06_具身智能与机器人'），字数在5-12字之间，精炼专业。\n"
-            "3. 提取二级细分：为推文提炼一个 4-10 字的 sub_category（如：Coding Agent/智能编程、Prompt与Skills工程、云原生与边缘计算等）。\n\n"
-            "必须严格只输出 JSON 对象，不得附带任何 markdown 解释或额外字符：\n"
-            "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
-        )
-        
-        # 深度转为原生 JavaScript Object，采用标准 prompt 避免 oneOf 多分支冲突
         ai_payload_dict = {
             "prompt": f"<|system|>\n{system_prompt}\n<|user|>\n{content_snippet}\n<|assistant|>\n",
             "temperature": 0.2,
@@ -188,16 +240,18 @@ async def ai_classify_tweet(text, title="", existing_categories=None, env=None):
                     cat = (parsed.get("category", "") or "").strip()
                     sub = (parsed.get("sub_category", "") or "").strip()
                     if cat and len(cat) <= 30:
-                        # 优先归一化匹配已有分类（防止微小符号差异）
+                        # 优先归一化匹配已有分类
                         for ex in active_cats:
                             if ex.lower() == cat.lower() or ex.split("_", 1)[-1].lower() == cat.split("_", 1)[-1].lower():
                                 cat = ex
                                 break
-                        return cat, (sub or "精选研读")
+                        if cat in active_cats:
+                            return cat, (sub or "精选研读")
             except Exception as e:
                 print(f"Workers AI 模型 [{model_id}] 暂不可用: {str(e)}，尝试下一个候选模型...")
                 continue
 
+    # 3. 终极兜底：本地正则关键词规则引擎
     return rule_classify_tweet(text, title)
 
 # 边缘实例级内存高速缓存（读写分离：只在写入时使缓存失效）
@@ -477,10 +531,32 @@ async def on_fetch(request, env):
                 except Exception as db_err:
                     print("D1 自动同步写入异常:", str(db_err))
 
-            if saved_to_d1:
+            # 存储层级化退路：若未绑定 D1 但有 KV，同步写入 KV
+            saved_to_kv = False
+            kv = get_kv_binding(env)
+            if kv and pulled:
+                try:
+                    existing_raw = await kv.get("tweets:all")
+                    existing_items = json.loads(existing_raw) if existing_raw else []
+                    id_map = {str(t.get("id")): t for t in existing_items}
+                    for p in pulled:
+                        p["classify_status"] = "projected"
+                        id_map[str(p.get("id"))] = p
+                    merged = list(id_map.values())
+                    await kv.put("tweets:all", json.dumps(merged, ensure_ascii=False))
+                    saved_to_kv = True
+                except Exception as kv_err:
+                    print("KV 同步写入异常:", str(kv_err))
+
+            if saved_to_d1 or saved_to_kv:
                 invalidate_cache()
 
-            msg_suffix = "，并已永久固化保存至 Cloudflare D1 边缘数据库！" if saved_to_d1 else ""
+            if saved_to_d1:
+                msg_suffix = "，并已持久化固化至 Cloudflare D1 边缘数据库！"
+            elif saved_to_kv:
+                msg_suffix = "，并已持久化保存至 Cloudflare KV 存储！"
+            else:
+                msg_suffix = "！"
             return json_resp({"success": True, "message": f"Cloudflare Worker 成功拉取并智能归类 {len(pulled)} 篇书签{msg_suffix}", "data": pulled})
 
         # 3.2 批量对历史/未分类/暂存推文执行 Workers AI 智能分类与专区归档
@@ -586,7 +662,102 @@ async def on_fetch(request, env):
                 except Exception as d1_err:
                     print("从 D1 读取异常:", str(d1_err))
 
-            return json_resp({"success": False, "message": "D1 数据库未就绪或暂时无数据"}, 404)
+            # 存储层级化降级 1：若无 D1 则自动降级从 Cloudflare KV 读取
+            kv = get_kv_binding(env)
+            if kv:
+                try:
+                    raw_kv = await kv.get("tweets:all")
+                    if raw_kv:
+                        kv_tweets = json.loads(raw_kv)
+                        _MEM_CACHE_TWEETS = {
+                            "success": True,
+                            "source": "Cloudflare KV",
+                            "total": len(kv_tweets),
+                            "data": kv_tweets
+                        }
+                        return json_resp(_MEM_CACHE_TWEETS, 200, cache_seconds=60)
+                except Exception as kv_err:
+                    print("从 KV 读取异常:", str(kv_err))
+
+            return json_resp({"success": False, "message": "数据库与KV暂无推文数据，请点击右上角【从 X 同步】开始拉取！"}, 200)
+
+        # 3.3 拓扑状态感知端点
+        if path == "/api/topology/status":
+            total = 0
+            projected = 0
+            settled = 0
+            cat_counts = {}
+            if hasattr(env, "DB"):
+                try:
+                    stmt = env.DB.prepare("SELECT category, classify_status FROM tweets")
+                    res = await stmt.all()
+                    for r in res.results:
+                        total += 1
+                        st = getattr(r, "classify_status", "settled") or "settled"
+                        if st == "projected":
+                            projected += 1
+                        else:
+                            settled += 1
+                        c = getattr(r, "category", "未分类")
+                        cat_counts[c] = cat_counts.get(c, 0) + 1
+                except Exception:
+                    pass
+            else:
+                kv = get_kv_binding(env)
+                if kv:
+                    raw = await kv.get("tweets:all")
+                    if raw:
+                        items = json.loads(raw)
+                        total = len(items)
+                        for it in items:
+                            st = it.get("classify_status", "settled")
+                            if st == "projected":
+                                projected += 1
+                            else:
+                                settled += 1
+                            c = it.get("category", "未分类")
+                            cat_counts[c] = cat_counts.get(c, 0) + 1
+
+            max_ratio = (max(cat_counts.values()) / total) if total > 0 and cat_counts else 0.0
+            needs_renormalize = projected >= 30 or (projected >= 10 and max_ratio > 0.40)
+            return json_resp({
+                "success": True,
+                "total_tweets": total,
+                "projected_count": projected,
+                "settled_count": settled,
+                "needs_renormalize": needs_renormalize,
+                "categories": cat_counts,
+                "max_cluster_ratio": round(max_ratio, 3)
+            })
+
+        # 3.4 拓扑重整化执行端点
+        if path == "/api/topology/renormalize" and method == "POST":
+            if hasattr(env, "DB"):
+                try:
+                    stmt = env.DB.prepare("UPDATE tweets SET classify_status = 'settled' WHERE classify_status = 'projected' OR classify_status IS NULL")
+                    await stmt.run()
+                    invalidate_cache()
+                    return json_resp({
+                        "success": True,
+                        "message": "Cloudflare 边缘拓扑重整化已成功执行并固化至 D1 数据库！"
+                    })
+                except Exception as d1_rn_err:
+                    return json_resp({"success": False, "error": str(d1_rn_err)}, 500)
+            else:
+                kv = get_kv_binding(env)
+                if kv:
+                    raw = await kv.get("tweets:all")
+                    if raw:
+                        items = json.loads(raw)
+                        for it in items:
+                            it["classify_status"] = "settled"
+                        await kv.put("tweets:all", json.dumps(items, ensure_ascii=False))
+                        invalidate_cache()
+                        return json_resp({
+                            "success": True,
+                            "message": "Cloudflare 边缘拓扑重整化已成功执行并固化至 KV 存储！"
+                        })
+            return json_resp({"success": False, "message": "未探测到活跃存储后端"}, 400)
 
         # 4. 其他路由回退给静态资产 binding
         if hasattr(env, "ASSETS"):

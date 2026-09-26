@@ -170,6 +170,89 @@ def get_credentials():
             pass
     return creds
 
+def get_custom_ai_config():
+    """读取用户自定义的 AI 配置 (支持 DeepSeek / OpenAI / Ollama 等兼容接口)"""
+    config = {
+        "api_base": os.environ.get("CUSTOM_AI_API_BASE", "https://api.deepseek.com/v1"),
+        "api_key": os.environ.get("CUSTOM_AI_API_KEY", ""),
+        "model": os.environ.get("CUSTOM_AI_MODEL", "deepseek-chat")
+    }
+    if os.path.exists(ENV_FILE):
+        try:
+            with open(ENV_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k == "CUSTOM_AI_API_BASE" and v:
+                            config["api_base"] = v
+                        elif k == "CUSTOM_AI_API_KEY" and v:
+                            config["api_key"] = v
+                        elif k == "CUSTOM_AI_MODEL" and v:
+                            config["model"] = v
+        except Exception:
+            pass
+    return config
+
+def classify_tweet_multi_tier(text, title="", active_cats=None):
+    """三级阶梯分类调度器：用户自定义 AI -> 本地规则兜底 (保持惯性，吸附在已有大类中)"""
+    if not active_cats:
+        active_cats = list(DEFAULT_CATEGORIES)
+    
+    ai_cfg = get_custom_ai_config()
+    if ai_cfg.get("api_key"):
+        try:
+            url = f"{ai_cfg['api_base'].rstrip('/')}/chat/completions"
+            cats_list_str = "\n".join([f"- {c}" for c in active_cats])
+            prompt = (
+                "你是一个科技前沿推文的自适应知识分类专家。\n"
+                "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n"
+                f"【目前已有的专区列表】：\n{cats_list_str}\n\n"
+                "【分类惯性约束】：必须从上述【已有专区列表】中选择最匹配的专区名称；\n"
+                "【细分提炼】：为推文提取一个 4-10 字的 sub_category 二级标签。\n"
+                "必须严格只输出 JSON 对象：\n"
+                "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
+            )
+            payload = json.dumps({
+                "model": ai_cfg["model"],
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"标题: {title}\n正文: {text}"[:1200]}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 120
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {ai_cfg['api_key']}"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                content = res.get("choices", [{}])[0].get("message", {}).get("content", "")
+                m = re.search(r"\{.*?\}", content, re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    cat = (parsed.get("category", "") or "").strip()
+                    sub = (parsed.get("sub_category", "") or "").strip()
+                    for ex in active_cats:
+                        if ex.lower() == cat.lower() or ex.split("_", 1)[-1].lower() == cat.split("_", 1)[-1].lower():
+                            cat = ex
+                            break
+                    if cat in active_cats:
+                        return cat, (sub or "精选研读")
+        except Exception as e:
+            print(f"[AI] 用户自定义大模型调用异常，平滑降级至规则引擎兜底: {e}")
+
+    # 兜底：纯本地规则引擎
+    return rule_classify_tweet(text, title)
+
 def save_credentials(auth_token, ct0):
     """保存凭证至本地私有真源 .env 及 Cloudflare 本地机密文件 .dev.vars"""
     data = {"auth_token": auth_token.strip(), "ct0": ct0.strip()}
@@ -335,7 +418,7 @@ def fetch_remote_bookmarks(max_pages=20):
                                 first_line = full_text.splitlines()[0] if full_text else "推文"
                                 display_title = first_line[:45] + ("..." if len(first_line) > 45 else "")
 
-                                cat, subcat = rule_classify_tweet(full_text, display_title)
+                                cat, subcat = classify_tweet_multi_tier(full_text, display_title)
 
                                 all_tweets.append({
                                     "id": rest_id,
@@ -356,7 +439,8 @@ def fetch_remote_bookmarks(max_pages=20):
                                     "images": images,
                                     "videos": [],
                                     "snippet": snippet,
-                                    "body_raw": full_text
+                                    "body_raw": full_text,
+                                    "classify_status": "projected"
                                 })
 
             # 如果没有下一页游标，或者游标未变，或者本页没有新推文，说明已到达历史最底层
@@ -450,6 +534,40 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": False, "message": msg}).encode("utf-8"))
             return
 
+        if parsed.path == "/api/topology/status":
+            tweets = []
+            if os.path.exists(DB_FILE):
+                try:
+                    with open(DB_FILE, "r", encoding="utf-8") as f:
+                        tweets = json.load(f)
+                except Exception:
+                    pass
+            total = len(tweets)
+            projected = [t for t in tweets if t.get("classify_status") == "projected"]
+            settled = [t for t in tweets if t.get("classify_status", "settled") == "settled"]
+            
+            cat_counts = {}
+            for t in tweets:
+                c = t.get("category", "未分类")
+                cat_counts[c] = cat_counts.get(c, 0) + 1
+                
+            max_ratio = (max(cat_counts.values()) / total) if total > 0 and cat_counts else 0.0
+            needs_renormalize = len(projected) >= 30 or (len(projected) >= 10 and max_ratio > 0.40)
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "total_tweets": total,
+                "projected_count": len(projected),
+                "settled_count": len(settled),
+                "needs_renormalize": needs_renormalize,
+                "categories": cat_counts,
+                "max_cluster_ratio": round(max_ratio, 3)
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
         super().do_GET()
 
     def do_POST(self):
@@ -526,6 +644,36 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                         "success": True,
                         "message": f"成功完成 {classified_count} 篇推文智能分类并更新专区！",
                         "total_classified": classified_count
+                    }, ensure_ascii=False).encode("utf-8"))
+                    return
+                except Exception as ex:
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "error": str(ex)}).encode("utf-8"))
+                    return
+
+        if parsed.path == "/api/topology/renormalize":
+            if os.path.exists(DB_FILE):
+                try:
+                    with open(DB_FILE, "r", encoding="utf-8") as f:
+                        tweets = json.load(f)
+                    
+                    projected = [t for t in tweets if t.get("classify_status") == "projected"]
+                    for t in tweets:
+                        t["classify_status"] = "settled"
+                    
+                    with open(DB_FILE, "w", encoding="utf-8") as f:
+                        json.dump(tweets, f, ensure_ascii=False)
+                        
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": True,
+                        "message": f"成功完成知识拓扑重整化！已将 {len(projected)} 篇新增推文锚定固化为 settled 状态。",
+                        "renormalized_count": len(projected),
+                        "total": len(tweets)
                     }, ensure_ascii=False).encode("utf-8"))
                     return
                 except Exception as ex:

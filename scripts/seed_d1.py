@@ -61,14 +61,15 @@ def generate_seed_sql(json_path, output_sql_path):
         body_raw = escape_sql(item.get("body_raw", ""))
         body_html = escape_sql(item.get("body_html", ""))
         avatar = escape_sql(item.get("avatar", ""))
+        classify_status = escape_sql(item.get("classify_status", "settled"))
 
         sql = (
             f"INSERT OR REPLACE INTO tweets ("
             f"id, filename, category, sub_category, title, author, username, url, created_at, "
-            f"likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar"
+            f"likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar, classify_status"
             f") VALUES ("
             f"{t_id}, {filename}, {cat}, {subcat}, {title}, {author}, {uname}, {url}, {created_at}, "
-            f"{likes}, {retweets}, {views}, {has_media}, {media_type}, {images}, {videos}, {snippet}, {body_raw}, {body_html}, {avatar}"
+            f"{likes}, {retweets}, {views}, {has_media}, {media_type}, {images}, {videos}, {snippet}, {body_raw}, {body_html}, {avatar}, {classify_status}"
             f");"
         )
         sql_statements.append(sql)

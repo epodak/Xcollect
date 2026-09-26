@@ -16,15 +16,20 @@
 ## ✨ 核心特性
 
 - 🔄 **𝕏 官方书签双向云同步**：通过 Web 凭据直接对接 𝕏 官方 GraphQL API，在看板中实时同步、收藏或一键解除云端书签，告别昂贵的官方企业级 API。
+- 🏡 **本地优先哲学 (Local-First)**：**绝不强求用户搭建个人网站**。无需买域名、无需配置云端，运行 `python local_server.py` 即可在本地硬盘安全存放推文数据，在 localhost 极速浏览。
+- 📦 **多级存储平滑降级 (Storage Cascade)**：
+  - 🥇 **Cloudflare D1 关系型数据库**（默认推荐，支持海量推文极速索引）
+  - 🥈 **Cloudflare KV 键值存储**（100% 免费开箱即用，每日 10 万次读取免建表）
+  - 🥉 **本地单文件存储**（`seed_data.json`，零任何第三方依赖，单机离线可用）
+- 🧠 **可插拔多级 AI 算力体系 (Pluggable AI Matrix)**：
+  - 🥇 **用户自定义大模型**：无缝对接 DeepSeek、OpenAI、本地 Ollama 等任何 OpenAI 兼容 API。
+  - 🥈 **Cloudflare Workers AI**：零配置免费赠送额度（采用 Meta Llama 3.1-8b-instruct-fast / 3.2 矩阵）。
+  - 🥉 **本地关键词规则引擎**：纯正则与高精语义打标，零网络依赖、零延迟、断网亦可 100% 兜底。
+- 🧬 **低扰动知识拓扑重整化 (Topology Renormalization)**：
+  - **日常收藏保持惯性**：新推文严格吸附在现有大类中，提取自由二级标签（`sub_category`），标记为 `projected`，保证看板一级专区不随单条收藏频繁晃动；
+  - **相变周期全局重整**：未固化条目累积达到阈值（如 30 条）或分类密度失衡时，由宏观聚类算法执行分裂/合并，批量固化为 `settled` 状态。
 - 🎨 **Petrol Teal 极客视觉美学**：精心调优的深青暗黑/明亮双主题，卡片悬浮微动效、图片/多视频画廊预览、响应式瀑布流布局。
-- 🏷️ **推文智能领域打标**：内置自动分类与二级细分引擎（人工智能与 Agent、技术架构与开发、开源精选与工具、产品设计与思考、前沿资讯与研读），支持 Workers AI 动态自适应扩展与 `config.toml` 用户自定义配置。
-- 🚀 **双模运行底座 (Dual Architecture)**：
-  - **本地独立模式 (Pure Python)**：只需 `python local_server.py`，0 安装依赖，自带轻量 JSON 存储与 API 模拟服务。
-  - **边缘生产模式 (Cloudflare Workers)**：利用 `compatibility_flags = ["python_workers"]` 在全球边缘节点无服务执行 Python 逻辑并持久化于 D1 数据库。
-- 🛡️ **严格 12-Factor 工程卫生契约**：
-  - 凭据完全物理隔离：私有密钥只存本地 `.env`（绝不上库），提供 100% 1:1 脱敏的 `.env.example`。
-  - 工程解耦配置：非敏感参数（端口、超时、开关）统一收敛至 `config.toml`。
-  - 一行冒烟自检：内置 `python local_server.py --check` 快速自验入口。
+- 🛡️ **严格 12-Factor 工程卫生契约**：敏感机密严格存入 `.env`（提供 1:1 脱敏镜像 `.env.example`），解耦参数统一置于 `config.toml`，内置一行冒烟自检 `python local_server.py --check`。
 
 ---
 
