@@ -149,8 +149,8 @@ async def on_fetch(request, env):
             })
 
         if path == "/api/tweets":
-            res = await load_tweets(env)
             fresh = query.get("fresh", ["0"])[0] == "1"
+            res = await load_tweets(env, bypass_cache=fresh)
             return json_resp(
                 res,
                 200,
