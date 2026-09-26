@@ -1,7 +1,7 @@
 import json
 import re
 import urllib.parse
-from js import Response, Headers, Object as JsObject, fetch as js_fetch
+from js import Response, Headers, Object as JsObject, JSON as JsJSON, fetch as js_fetch
 
 TWITTER_BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 QUERY_ID_BOOKMARKS = "XD0ViOeSOW4YoeNTGjVaYw"
@@ -130,6 +130,13 @@ async def get_existing_categories(env):
             print("获取已有专区列表失败:", str(e))
     return cats
 
+# Cloudflare Workers AI 官方推荐活跃文本分类模型（按低延迟、轻量和可用性排序，多模型级联容灾）
+WORKERS_AI_CANDIDATE_MODELS = [
+    "@cf/meta/llama-3.1-8b-instruct-fast",
+    "@cf/meta/llama-3.2-3b-instruct",
+    "@cf/meta/llama-3.2-1b-instruct",
+]
+
 async def ai_classify_tweet(text, title="", existing_categories=None, env=None):
     if not existing_categories:
         existing_categories = VALID_CATEGORIES
@@ -142,53 +149,54 @@ async def ai_classify_tweet(text, title="", existing_categories=None, env=None):
     cats_prompt_list = "\n".join([f"- {c}" for c in active_cats])
     
     if env and hasattr(env, "AI"):
-        try:
-            content_snippet = (f"标题: {title}\n正文: {text}")[:1400]
-            system_prompt = (
-                "你是一个科技前沿推文的自适应知识拓扑与分类专家。\n"
-                "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n\n"
-                f"【目前已有的专区列表】：\n{cats_prompt_list}\n\n"
-                "【分类与自适应扩充原则】：\n"
-                "1. 优先复用：如果推文主题与上述【已有专区列表】高度匹配，请直接复用该专区名称。\n"
-                "2. 开放扩充（重要）：如果推文明确属于一个全新的技术/业务分支（例如：具身智能与机器人、Web3与加密经济、前沿硬件/单片机、脑机接口/生命科技等），且现有专区无法合理容纳，【请自主定义一个全新的专业专区名称】！\n"
-                "   - 命名格式：如果现有专区有编号前缀，请自动顺延编号（例如当前已到05_，新专区可命名为 '06_具身智能与机器人'），字数在5-12字之间，精炼专业。\n"
-                "3. 提取二级细分：为推文提炼一个 4-10 字的 sub_category（如：Coding Agent/智能编程、Prompt与Skills工程、云原生与边缘计算等）。\n\n"
-                "必须严格只输出 JSON 对象，不得附带任何 markdown 解释或额外字符：\n"
-                "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
-            )
-            ai_res = await env.AI.run(
-                "@cf/meta/llama-3.1-8b-instruct",
-                {
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": content_snippet}
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 120
-                }
-            )
-            res_str = ""
-            if isinstance(ai_res, dict):
-                res_str = ai_res.get("response", "")
-            elif hasattr(ai_res, "response"):
-                res_str = getattr(ai_res, "response", "")
-            else:
-                res_str = str(ai_res)
-            
-            m = re.search(r"\{.*?\}", res_str, re.DOTALL)
-            if m:
-                parsed = json.loads(m.group(0))
-                cat = (parsed.get("category", "") or "").strip()
-                sub = (parsed.get("sub_category", "") or "").strip()
-                if cat and len(cat) <= 30:
-                    # 优先归一化匹配已有分类（防止微小符号差异）
-                    for ex in active_cats:
-                        if ex.lower() == cat.lower() or ex.split("_", 1)[-1].lower() == cat.split("_", 1)[-1].lower():
-                            cat = ex
-                            break
-                    return cat, (sub or "精选研读")
-        except Exception as e:
-            print("Workers AI 自适应分类调用异常，回退至规则兜底:", str(e))
+        content_snippet = (f"标题: {title}\n正文: {text}")[:1400]
+        system_prompt = (
+            "你是一个科技前沿推文的自适应知识拓扑与分类专家。\n"
+            "请阅读推文内容，判断其所属领域专区（category）并提取一个具体的二级子领域（sub_category，4-10字）。\n\n"
+            f"【目前已有的专区列表】：\n{cats_prompt_list}\n\n"
+            "【分类与自适应扩充原则】：\n"
+            "1. 优先复用：如果推文主题与上述【已有专区列表】高度匹配，请直接复用该专区名称。\n"
+            "2. 开放扩充（重要）：如果推文明确属于一个全新的技术/业务分支（例如：具身智能与机器人、Web3与加密经济、前沿硬件/单片机、脑机接口/生命科技等），且现有专区无法合理容纳，【请自主定义一个全新的专业专区名称】！\n"
+            "   - 命名格式：如果现有专区有编号前缀，请自动顺延编号（例如当前已到05_，新专区可命名为 '06_具身智能与机器人'），字数在5-12字之间，精炼专业。\n"
+            "3. 提取二级细分：为推文提炼一个 4-10 字的 sub_category（如：Coding Agent/智能编程、Prompt与Skills工程、云原生与边缘计算等）。\n\n"
+            "必须严格只输出 JSON 对象，不得附带任何 markdown 解释或额外字符：\n"
+            "{\"category\": \"专区名称\", \"sub_category\": \"二级细分标签\"}"
+        )
+        
+        # 深度转为原生 JavaScript Object，采用标准 prompt 避免 oneOf 多分支冲突
+        ai_payload_dict = {
+            "prompt": f"<|system|>\n{system_prompt}\n<|user|>\n{content_snippet}\n<|assistant|>\n",
+            "temperature": 0.2,
+            "max_tokens": 120
+        }
+        js_payload = JsJSON.parse(json.dumps(ai_payload_dict))
+
+        for model_id in WORKERS_AI_CANDIDATE_MODELS:
+            try:
+                ai_res = await env.AI.run(model_id, js_payload)
+                res_str = ""
+                if isinstance(ai_res, dict):
+                    res_str = ai_res.get("response", "")
+                elif hasattr(ai_res, "response"):
+                    res_str = getattr(ai_res, "response", "")
+                else:
+                    res_str = str(ai_res)
+                
+                m = re.search(r"\{.*?\}", res_str, re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    cat = (parsed.get("category", "") or "").strip()
+                    sub = (parsed.get("sub_category", "") or "").strip()
+                    if cat and len(cat) <= 30:
+                        # 优先归一化匹配已有分类（防止微小符号差异）
+                        for ex in active_cats:
+                            if ex.lower() == cat.lower() or ex.split("_", 1)[-1].lower() == cat.split("_", 1)[-1].lower():
+                                cat = ex
+                                break
+                        return cat, (sub or "精选研读")
+            except Exception as e:
+                print(f"Workers AI 模型 [{model_id}] 暂不可用: {str(e)}，尝试下一个候选模型...")
+                continue
 
     return rule_classify_tweet(text, title)
 
