@@ -107,14 +107,13 @@ async def load_tweets(env) -> dict:
                 }
                 tweets_list.append(row_dict)
 
-            if tweets_list:
-                _MEM_CACHE_TWEETS = {
-                    "success": True,
-                    "source": "Cloudflare D1 (Edge Cached)",
-                    "total": len(tweets_list),
-                    "data": tweets_list,
-                }
-                return _MEM_CACHE_TWEETS
+            _MEM_CACHE_TWEETS = {
+                "success": True,
+                "source": "Cloudflare D1 (Edge Cached)",
+                "total": len(tweets_list),
+                "data": tweets_list,
+            }
+            return _MEM_CACHE_TWEETS
         except Exception as d1_err:
             print("从 D1 读取异常:", str(d1_err))
 
@@ -142,40 +141,93 @@ async def load_tweets(env) -> dict:
     }
 
 
-async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str]:
-    """批量持久化保存推文（优先 D1 数据库，同时兜底同步至 KV 存储）。"""
+async def get_storage_status(env) -> dict:
+    """直接探测持久化后端状态，不依赖边缘内存缓存。"""
+    kv = get_kv_binding(env)
+    status = {
+        "success": True,
+        "d1_bound": bool(hasattr(env, "DB")),
+        "d1_ready": False,
+        "d1_row_count": None,
+        "d1_error": "",
+        "kv_bound": bool(kv),
+    }
+
+    if hasattr(env, "DB"):
+        try:
+            stmt = env.DB.prepare("SELECT COUNT(*) AS total FROM tweets")
+            res = await stmt.all()
+            rows = res.results
+            total = 0
+            if rows:
+                row = rows[0]
+                if isinstance(row, dict):
+                    total = int(row.get("total", 0) or 0)
+                else:
+                    total = int(getattr(row, "total", 0) or 0)
+            status["d1_ready"] = True
+            status["d1_row_count"] = total
+        except Exception as err:
+            status["d1_error"] = str(err)
+
+    return status
+
+
+async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
+    """批量持久化推文，并返回可审计的 D1/KV 写入统计。"""
+    kv = get_kv_binding(env)
+    details = {
+        "attempted": len(tweets),
+        "d1_bound": bool(hasattr(env, "DB")),
+        "d1_written": 0,
+        "d1_row_count": None,
+        "d1_error": "",
+        "kv_bound": bool(kv),
+        "kv_written": 0,
+        "kv_error": "",
+        "backend": "",
+    }
+
     if not tweets:
-        return True, "无待保存推文"
+        current = await get_storage_status(env)
+        details["d1_row_count"] = current.get("d1_row_count")
+        details["backend"] = "d1" if current.get("d1_ready") else ("kv" if details["kv_bound"] else "")
+        return True, "X 云端没有返回待保存数据", details
 
     saved_to_d1 = False
     saved_to_kv = False
 
-    # 1. 尝试保存至 D1
     if hasattr(env, "DB"):
-        try:
-            sql_full = """
-            INSERT OR REPLACE INTO tweets (
-                id, filename, category, sub_category, title, author, username, url, created_at,
-                likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar, classify_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            sql_no_status = """
-            INSERT OR REPLACE INTO tweets (
-                id, filename, category, sub_category, title, author, username, url, created_at,
-                likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            sql_legacy = """
-            INSERT OR REPLACE INTO tweets (
-                id, filename, category, sub_category, title, author, username, url, created_at,
-                likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
+        sql_full = """
+        INSERT OR REPLACE INTO tweets (
+            id, filename, category, sub_category, title, author, username, url, created_at,
+            likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar, classify_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        sql_no_status = """
+        INSERT OR REPLACE INTO tweets (
+            id, filename, category, sub_category, title, author, username, url, created_at,
+            likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        sql_legacy = """
+        INSERT OR REPLACE INTO tweets (
+            id, filename, category, sub_category, title, author, username, url, created_at,
+            likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
 
+        try:
             for item in tweets:
+                images = item.get("images") or []
+                videos = item.get("videos") or []
+                has_media = int(bool(item.get("has_media") or images or videos))
+                media_type = item.get("media_type", "") or (
+                    "video" if videos else ("image" if images else "")
+                )
                 base_args = [
                     str(item["id"]),
-                    f"twitter_{item['username']}_status_{item['id']}.md",
+                    item.get("filename") or f"twitter_{item.get('username', '')}_status_{item['id']}.md",
                     item.get("category", "未分类"),
                     item.get("sub_category", "精选研读"),
                     item.get("title", ""),
@@ -186,16 +238,16 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str]:
                     int(item.get("likes") or 0),
                     int(item.get("retweets") or 0),
                     int(item.get("views") or 0),
-                    0,
-                    "",
-                    "[]",
-                    "[]",
+                    has_media,
+                    media_type,
+                    json.dumps(images, ensure_ascii=False),
+                    json.dumps(videos, ensure_ascii=False),
                     item.get("snippet", ""),
                     item.get("body_raw", ""),
-                    "",
+                    item.get("body_html", ""),
                 ]
                 avatar_val = item.get("avatar", "") or ""
-                status_val = item.get("classify_status", "projected")
+                status_val = item.get("classify_status", "projected") or "projected"
 
                 try:
                     stmt = env.DB.prepare(sql_full).bind(*(base_args + [avatar_val, status_val]))
@@ -214,35 +266,64 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str]:
                         await stmt.run()
                     else:
                         raise
-            saved_to_d1 = True
-        except Exception as db_err:
-            print("D1 批量保存写入异常:", str(db_err))
 
-    # 2. 存储层级化退路：同步写入 KV
-    kv = get_kv_binding(env)
+                details["d1_written"] += 1
+
+            saved_to_d1 = details["d1_written"] == len(tweets)
+
+            count_stmt = env.DB.prepare("SELECT COUNT(*) AS total FROM tweets")
+            count_res = await count_stmt.all()
+            count_rows = count_res.results
+            if count_rows:
+                row = count_rows[0]
+                if isinstance(row, dict):
+                    details["d1_row_count"] = int(row.get("total", 0) or 0)
+                else:
+                    details["d1_row_count"] = int(getattr(row, "total", 0) or 0)
+        except Exception as db_err:
+            details["d1_error"] = str(db_err)
+            print("D1 批量保存写入异常:", details["d1_error"])
+
     if kv:
         try:
             existing_raw = await kv.get("tweets:all")
             existing_items = json.loads(existing_raw) if existing_raw else []
             id_map = {str(t.get("id")): t for t in existing_items}
-            for p in tweets:
-                if "classify_status" not in p:
-                    p["classify_status"] = "projected"
-                id_map[str(p.get("id"))] = p
+            for item in tweets:
+                item_copy = dict(item)
+                item_copy.setdefault("classify_status", "projected")
+                id_map[str(item_copy.get("id"))] = item_copy
             merged = list(id_map.values())
             await kv.put("tweets:all", json.dumps(merged, ensure_ascii=False))
+            details["kv_written"] = len(tweets)
             saved_to_kv = True
         except Exception as kv_err:
-            print("KV 同步写入异常:", str(kv_err))
+            details["kv_error"] = str(kv_err)
+            print("KV 同步写入异常:", details["kv_error"])
 
     if saved_to_d1 or saved_to_kv:
         invalidate_cache()
 
     if saved_to_d1:
-        return True, "已持久化固化至 Cloudflare D1 边缘数据库！"
-    elif saved_to_kv:
-        return True, "已持久化保存至 Cloudflare KV 存储！"
-    return False, "未探测到可用持久化后端"
+        details["backend"] = "d1"
+        return (
+            True,
+            f"D1 已确认写入 {details['d1_written']} 条，当前表内共 {details['d1_row_count']} 条",
+            details,
+        )
+
+    if saved_to_kv:
+        details["backend"] = "kv"
+        prefix = ""
+        if details["d1_bound"] and details["d1_error"]:
+            prefix = f"D1 写入失败 ({details['d1_error']})，"
+        return True, prefix + f"已降级写入 KV {details['kv_written']} 条", details
+
+    if details["d1_bound"] and details["d1_error"]:
+        return False, f"D1 写入失败: {details['d1_error']}", details
+    if not details["d1_bound"] and not details["kv_bound"]:
+        return False, "Worker 未绑定 D1(DB) 或 KV，无法持久化", details
+    return False, "持久化后端写入未完成", details
 
 
 async def delete_tweet_from_storage(env, tweet_id: str):
