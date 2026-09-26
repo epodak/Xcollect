@@ -115,7 +115,7 @@ async function initApp() {
 
   // 3. 异步并发绑定事件与检查凭证
   setupEventListeners();
-  checkAuthStatus();
+  const authStatusPromise = checkAuthStatus();
 
   // 4. 后台发起真实网络请求（非阻塞），实现推特级 Stale-While-Revalidate
   try {
@@ -148,25 +148,41 @@ async function initApp() {
     }
   }
 
-  // 5. 如果已配置 X 凭据，在后台静默发起一次增量同步
+  // 5. 等凭证状态真正返回后再决定是否静默同步；避免异步竞态误判为未配置
+  await authStatusPromise;
+
+  // 6. 如果已配置 X 凭据，在后台静默发起一次增量同步
   if (isXConfigured) {
     setTimeout(async () => {
       try {
         const res = await api.syncBookmarks();
-        if (res.success && res.data && res.data.length > 0) {
-          const existingIds = new Set(tweets.map(t => t.id));
-          const newItems = res.data.filter(t => !existingIds.has(t.id));
-          if (newItems.length > 0) {
-            tweets = [...newItems, ...tweets];
+        if (res.success) {
+          // D1 fresh read-back：界面只展示真正已持久化的数据，而不是直接相信拉取 payload。
+          const fresh = await api.getTweets(true);
+          if (fresh.success && Array.isArray(fresh.data)) {
+            const existingIds = new Set(tweets.map(t => t.id));
+            tweets = fresh.data;
             window.tweets = tweets;
+            const newItems = tweets.filter(t => !existingIds.has(t.id));
             try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch(e){}
             if (brandSub) {
               brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
             }
             renderCategories();
             applyFiltersAndRender(false);
-            showToast(`已自动静默同步 𝕏 最新书签！新增 ${newItems.length} 篇并存入 D1`);
+
+            const d1Written = res.storage && Number.isFinite(res.storage.d1_written)
+              ? res.storage.d1_written
+              : 0;
+            const d1Total = res.storage_status && res.storage_status.d1_row_count != null
+              ? res.storage_status.d1_row_count
+              : tweets.length;
+            if (newItems.length > 0) {
+              showToast(`自动同步：X 拉取 ${res.pulled_count || 0}，D1 写入 ${d1Written}，D1 总计 ${d1Total}，新增 ${newItems.length}`);
+            }
           }
+        } else {
+          console.warn("后台静默同步失败:", res.error, res.message);
         }
       } catch (e) {
         console.debug("后台静默同步书签未完成:", e);
@@ -544,16 +560,20 @@ function setupEventListeners() {
         text.textContent = "正在向 𝕏 云端拉取...";
 
         try {
-          const resp = await fetch("/api/bookmarks/sync");
-          const result = await resp.json();
-          if (result.success && result.data) {
-            showToast(result.message);
-            // 将云端最新拉取的推文直接合入当前内存列表（去重置顶）
-            const existingIds = new Set(tweets.map(t => t.id));
-            const newItems = result.data.filter(t => !existingIds.has(t.id));
-            tweets = [...newItems, ...tweets];
+          const result = await api.syncBookmarks();
+          if (result.success) {
+            // 同步成功之后强制从 D1 再读一次，以持久化结果作为唯一权威。
+            const fresh = await api.getTweets(true);
+            if (!fresh.success || !Array.isArray(fresh.data)) {
+              throw new Error("同步已返回成功，但 D1 fresh read-back 失败");
+            }
 
-            // 动态更新副标题篇数
+            const existingIds = new Set(tweets.map(t => t.id));
+            tweets = fresh.data;
+            window.tweets = tweets;
+            const newItems = tweets.filter(t => !existingIds.has(t.id));
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch(e){}
+
             const brandSub = document.querySelector(".brand-sub");
             if (brandSub) {
               brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
@@ -561,9 +581,16 @@ function setupEventListeners() {
 
             renderCategories();
             applyFiltersAndRender();
-            showToast(`同步完成！云端新增 ${newItems.length} 篇，当前总计 ${tweets.length} 篇`);
+
+            const d1Written = result.storage && Number.isFinite(result.storage.d1_written)
+              ? result.storage.d1_written
+              : 0;
+            const d1Total = result.storage_status && result.storage_status.d1_row_count != null
+              ? result.storage_status.d1_row_count
+              : tweets.length;
+            showToast(`同步完成：X 拉取 ${result.pulled_count || 0}，D1 写入 ${d1Written}，D1 总计 ${d1Total}，当前新增 ${newItems.length}`);
           } else {
-            showToast(result.message || "从 X 拉取书签失败", false);
+            showToast(result.message || result.error || "从 X 拉取书签失败", false);
           }
         } catch (err) {
           showToast("网络请求异常: " + err, false);
