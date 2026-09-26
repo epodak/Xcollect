@@ -11,6 +11,7 @@ sync_config.py - 单一真源配置与提示词编译投影器 (Agent Relay Hygi
 """
 
 import sys
+import json
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -44,9 +45,9 @@ def generate_content() -> str:
 ==============================================================================
 """
 
-CONFIG_TOML_CONTENT = {repr(config_toml_str)}
+CONFIG_TOML_CONTENT = {json.dumps(config_toml_str, ensure_ascii=False)}
 
-PROMPT_CLASSIFY_CONTENT = {repr(prompt_classify_str)}
+PROMPT_CLASSIFY_CONTENT = {json.dumps(prompt_classify_str, ensure_ascii=False)}
 '''
     return generated_code
 
