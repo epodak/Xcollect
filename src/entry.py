@@ -312,80 +312,109 @@ async def on_fetch(request, env):
                 "view_counts_everywhere_api_enabled": True,
                 "longform_notetweets_consumption_enabled": True
             }
-            params = {
-                "variables": json.dumps({"count": 50, "includePromotedContent": False}),
-                "features": json.dumps(features)
-            }
-            q_str = urllib.parse.urlencode(params)
-            x_url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{q_str}"
-
-            h = Headers.new()
-            h.set("authorization", TWITTER_BEARER)
-            h.set("x-csrf-token", ct0)
-            h.set("x-twitter-active-user", "yes")
-            h.set("x-twitter-auth-type", "OAuth2Session")
-            h.set("content-type", "application/json")
-            h.set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-            h.set("cookie", f"auth_token={auth_token}; ct0={ct0};")
-
-            init = JsObject.new()
-            init.method = "GET"
-            init.headers = h
-
-            resp = await js_fetch(x_url, init)
-            raw_text = await resp.text()
-            raw_data = json.loads(raw_text)
-
-            instructions = raw_data.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {}).get("instructions", [])
+            # 支持游标连续翻页深度拉取（最大 15 页，单页 50 篇，足以完整覆盖 750+ 篇全量书签）
+            max_pages = 15
+            cursor = None
             pulled = []
-            for ins in instructions:
-                if ins.get("type") == "TimelineAddEntries":
-                    for entry in ins.get("entries", []):
-                        if "tweet" in entry.get("entryId", ""):
-                            t_res = entry.get("content", {}).get("itemContent", {}).get("tweet_results", {}).get("result", {})
-                            if "tweet" in t_res:
-                                t_res = t_res["tweet"]
-                            rest_id = t_res.get("rest_id", "")
-                            legacy = t_res.get("legacy", {})
-                            user_res = t_res.get("core", {}).get("user_results", {}).get("result", {})
-                            user_core = user_res.get("core", {})
-                            avatar_url = extract_avatar(user_res)
-                            name = user_core.get("name", "")
-                            s_name = user_core.get("screen_name", "")
-                            text = legacy.get("full_text", "")
-                            created_at = legacy.get("created_at", "")
-                            likes = legacy.get("favorite_count", 0)
-                            retweets = legacy.get("retweet_count", 0)
-                            views = int(t_res.get("views", {}).get("count", 0) or 0)
-                            snippet = text.replace("\n", " ")[:140]
-                            title = text.splitlines()[0][:45] if text else "推文"
-                            url_t = f"https://x.com/{s_name}/status/{rest_id}"
+            seen_ids = set()
+            page_count = 0
 
-                            # 动态获取当前系统已有分类拓扑
-                            if 'existing_cats' not in locals():
-                                existing_cats = await get_existing_categories(env)
+            # 动态获取当前系统已有分类拓扑
+            existing_cats = await get_existing_categories(env)
 
-                            # 自动调用 Workers AI 进行自适应拓扑归类（优先匹配已有大类，新领域自主开辟新专区）
-                            cat, subcat = await ai_classify_tweet(text, title, existing_cats, env)
-                            if cat not in existing_cats:
-                                existing_cats.append(cat)
+            for page in range(max_pages):
+                page_count += 1
+                params_vars = {"count": 50, "includePromotedContent": False}
+                if cursor:
+                    params_vars["cursor"] = cursor
 
-                            pulled.append({
-                                "id": rest_id,
-                                "author": name or s_name,
-                                "username": s_name,
-                                "avatar": avatar_url,
-                                "title": title,
-                                "snippet": snippet,
-                                "likes": likes,
-                                "retweets": retweets,
-                                "views": views,
-                                "category": cat,
-                                "sub_category": subcat,
-                                "body_raw": text,
-                                "url": url_t,
-                                "created_at": created_at
-                            })
+                params = {
+                    "variables": json.dumps(params_vars),
+                    "features": json.dumps(features)
+                }
+                q_str = urllib.parse.urlencode(params)
+                x_url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{q_str}"
+
+                h = Headers.new()
+                h.set("authorization", TWITTER_BEARER)
+                h.set("x-csrf-token", ct0)
+                h.set("x-twitter-active-user", "yes")
+                h.set("x-twitter-auth-type", "OAuth2Session")
+                h.set("content-type", "application/json")
+                h.set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+                h.set("cookie", f"auth_token={auth_token}; ct0={ct0};")
+
+                init = JsObject.new()
+                init.method = "GET"
+                init.headers = h
+
+                resp = await js_fetch(x_url, init)
+                raw_text = await resp.text()
+                raw_data = json.loads(raw_text)
+
+                instructions = raw_data.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {}).get("instructions", [])
+                page_new_count = 0
+                next_cursor = None
+
+                for ins in instructions:
+                    if ins.get("type") == "TimelineAddEntries":
+                        for entry in ins.get("entries", []):
+                            eid = entry.get("entryId", "")
+                            content = entry.get("content", {})
+
+                            # 提取底部翻页游标
+                            if "cursor-bottom" in eid or content.get("cursorType") == "Bottom":
+                                next_cursor = content.get("value") or content.get("itemContent", {}).get("value")
+
+                            if "tweet" in eid:
+                                t_res = content.get("itemContent", {}).get("tweet_results", {}).get("result", {})
+                                if "tweet" in t_res:
+                                    t_res = t_res["tweet"]
+                                rest_id = t_res.get("rest_id", "")
+                                if rest_id and rest_id not in seen_ids:
+                                    seen_ids.add(rest_id)
+                                    page_new_count += 1
+
+                                    legacy = t_res.get("legacy", {})
+                                    user_res = t_res.get("core", {}).get("user_results", {}).get("result", {})
+                                    user_core = user_res.get("core", {})
+                                    avatar_url = extract_avatar(user_res)
+                                    name = user_core.get("name", "")
+                                    s_name = user_core.get("screen_name", "")
+                                    text = legacy.get("full_text", "")
+                                    created_at = legacy.get("created_at", "")
+                                    likes = legacy.get("favorite_count", 0)
+                                    retweets = legacy.get("retweet_count", 0)
+                                    views = int(t_res.get("views", {}).get("count", 0) or 0)
+                                    snippet = text.replace("\n", " ")[:140]
+                                    title = text.splitlines()[0][:45] if text else "推文"
+                                    url_t = f"https://x.com/{s_name}/status/{rest_id}"
+
+                                    cat, subcat = await ai_classify_tweet(text, title, existing_cats, env)
+                                    if cat not in existing_cats:
+                                        existing_cats.append(cat)
+
+                                    pulled.append({
+                                        "id": rest_id,
+                                        "author": name or s_name,
+                                        "username": s_name,
+                                        "avatar": avatar_url,
+                                        "title": title,
+                                        "snippet": snippet,
+                                        "likes": likes,
+                                        "retweets": retweets,
+                                        "views": views,
+                                        "category": cat,
+                                        "sub_category": subcat,
+                                        "body_raw": text,
+                                        "url": url_t,
+                                        "created_at": created_at
+                                    })
+
+                # 翻页终止判定：无下游标、游标未前进、或本页无新推文
+                if not next_cursor or next_cursor == cursor or page_new_count == 0:
+                    break
+                cursor = next_cursor
 
             # 如果 Worker 绑定了 D1 数据库，则批量写入持久化保存！
             saved_to_d1 = False

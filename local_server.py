@@ -231,8 +231,8 @@ def call_x_bookmark_api(tweet_id, action="delete"):
         return False, f"网络请求异常: {str(ex)}"
 
 
-def fetch_remote_bookmarks(max_count=40):
-    """直接调用 X 官方 GraphQL API 拉取云端真实书签"""
+def fetch_remote_bookmarks(max_pages=20):
+    """直接调用 X 官方 GraphQL API 连续翻页（游标下潜）拉取全量云端真实书签"""
     creds = get_credentials()
     auth_token = creds.get("auth_token")
     ct0 = creds.get("ct0")
@@ -240,114 +240,135 @@ def fetch_remote_bookmarks(max_count=40):
     if not auth_token or not ct0:
         return False, "请先配置 X 账户凭证", []
 
-    # 加载 features
-    features_path = os.path.join(SERVE_DIR, "bm_features.json")
-    if os.path.exists(features_path):
-        with open(features_path, "r", encoding="utf-8") as ff:
-            features = json.load(ff)
-    else:
-        features = {}
-
-    variables = {
-        "count": min(max_count, 100),
-        "includePromotedContent": False
+    features = {
+        "rweb_video_screen_enabled": False,
+        "rweb_cashtags_enabled": True,
+        "profile_label_improvements_pcf_label_in_post_enabled": True,
+        "responsive_web_graphql_timeline_navigation_enabled": True,
+        "view_counts_everywhere_api_enabled": True,
+        "longform_notetweets_consumption_enabled": True
     }
 
-    params = {
-        "variables": json.dumps(variables),
-        "features": json.dumps(features)
-    }
-
-    query_string = urllib.parse.urlencode(params)
-    url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{query_string}"
+    cursor = None
+    all_tweets = []
+    seen_ids = set()
     headers = get_base_headers(auth_token, ct0)
-
-    req = urllib.request.Request(url, headers=headers, method="GET")
+    page_count = 0
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            
-        instructions = data.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {}).get("instructions", [])
-        parsed_tweets = []
-        
-        for ins in instructions:
-            if ins.get("type") == "TimelineAddEntries":
-                for entry in ins.get("entries", []):
-                    entry_id = entry.get("entryId", "")
-                    if "tweet" in entry_id:
-                        content = entry.get("content", {}).get("itemContent", {})
-                        tweet_res = content.get("tweet_results", {}).get("result", {})
-                        if "tweet" in tweet_res:
-                            tweet_res = tweet_res["tweet"]
-                            
-                        rest_id = tweet_res.get("rest_id", "")
-                        legacy = tweet_res.get("legacy", {})
-                        user_res = tweet_res.get("core", {}).get("user_results", {}).get("result", {})
-                        user_core = user_res.get("core", {})
+        for page in range(max_pages):
+            page_count += 1
+            variables = {
+                "count": 50,
+                "includePromotedContent": False
+            }
+            if cursor:
+                variables["cursor"] = cursor
 
-                        # 提取作者头像（默认 _normal 48px，升级为 _400x400 高清版）
-                        avatar_url = user_res.get("avatar", {}).get("image_url", "") or legacy.get("profile_image_url_https", "")
-                        for _sfx in ("_normal", "_bigger", "_mini", "_reasonably_small"):
-                            if _sfx in avatar_url:
-                                avatar_url = avatar_url.replace(_sfx, "_400x400")
-                                break
+            params = {
+                "variables": json.dumps(variables),
+                "features": json.dumps(features)
+            }
+            query_string = urllib.parse.urlencode(params)
+            url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{query_string}"
 
-                        name = user_core.get("name", "")
-                        screen_name = user_core.get("screen_name", "")
-                        full_text = legacy.get("full_text", "")
-                        fav_count = legacy.get("favorite_count", 0)
-                        retweet_count = legacy.get("retweet_count", 0)
-                        views_count = 0
-                        try:
-                            views_count = int(tweet_res.get("views", {}).get("count", 0))
-                        except Exception:
-                            pass
-                            
-                        created_at = legacy.get("created_at", "")
-                        
-                        # 提取配图
-                        images = []
-                        extended_entities = legacy.get("extended_entities", {})
-                        for m in extended_entities.get("media", []):
-                            if m.get("type") == "photo" and "media_url_https" in m:
-                                images.append(m["media_url_https"])
+            req = urllib.request.Request(url, headers=headers, method="GET")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
 
-                        # 提炼分类与简单标题
-                        snippet = full_text.replace("\n", " ").strip()[:140]
-                        first_line = full_text.splitlines()[0] if full_text else "推文"
-                        display_title = first_line[:45] + ("..." if len(first_line) > 45 else "")
-                        
-                        # 自动智能分类打标
-                        cat, subcat = rule_classify_tweet(full_text, display_title)
-                        
-                        parsed_tweets.append({
-                            "id": rest_id,
-                            "filename": f"tweet_{rest_id}.md",
-                            "category": cat,
-                            "sub_category": subcat,
-                            "title": display_title,
-                            "author": name or screen_name,
-                            "username": screen_name,
-                            "avatar": avatar_url,
-                            "url": f"https://x.com/{screen_name}/status/{rest_id}",
-                            "created_at": created_at,
-                            "likes": fav_count,
-                            "retweets": retweet_count,
-                            "views": views_count,
-                            "has_media": bool(images),
-                            "media_type": "image" if images else "",
-                            "images": images,
-                            "videos": [],
-                            "snippet": snippet,
-                            "body_raw": full_text
-                        })
-                        
-        return True, f"成功从 X 云端拉取到 {len(parsed_tweets)} 篇最新书签！", parsed_tweets
+            instructions = data.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {}).get("instructions", [])
+            page_new_count = 0
+            next_cursor = None
+
+            for ins in instructions:
+                if ins.get("type") == "TimelineAddEntries":
+                    for entry in ins.get("entries", []):
+                        entry_id = entry.get("entryId", "")
+                        content = entry.get("content", {})
+
+                        # 提取底部翻页游标
+                        if "cursor-bottom" in entry_id or content.get("cursorType") == "Bottom":
+                            next_cursor = content.get("value") or content.get("itemContent", {}).get("value")
+
+                        if "tweet" in entry_id:
+                            tweet_res = content.get("itemContent", {}).get("tweet_results", {}).get("result", {})
+                            if "tweet" in tweet_res:
+                                tweet_res = tweet_res["tweet"]
+
+                            rest_id = tweet_res.get("rest_id", "")
+                            if rest_id and rest_id not in seen_ids:
+                                seen_ids.add(rest_id)
+                                page_new_count += 1
+
+                                legacy = tweet_res.get("legacy", {})
+                                user_res = tweet_res.get("core", {}).get("user_results", {}).get("result", {})
+                                user_core = user_res.get("core", {})
+
+                                # 提取作者头像（规范化为 _400x400 高清）
+                                avatar_url = user_res.get("avatar", {}).get("image_url", "") or legacy.get("profile_image_url_https", "")
+                                for _sfx in ("_normal", "_bigger", "_mini", "_reasonably_small"):
+                                    if _sfx in avatar_url:
+                                        avatar_url = avatar_url.replace(_sfx, "_400x400")
+                                        break
+
+                                name = user_core.get("name", "")
+                                screen_name = user_core.get("screen_name", "")
+                                full_text = legacy.get("full_text", "")
+                                fav_count = legacy.get("favorite_count", 0)
+                                retweet_count = legacy.get("retweet_count", 0)
+                                views_count = 0
+                                try:
+                                    views_count = int(tweet_res.get("views", {}).get("count", 0))
+                                except Exception:
+                                    pass
+
+                                created_at = legacy.get("created_at", "")
+
+                                # 提取配图
+                                images = []
+                                extended_entities = legacy.get("extended_entities", {})
+                                for m in extended_entities.get("media", []):
+                                    if m.get("type") == "photo" and "media_url_https" in m:
+                                        images.append(m["media_url_https"])
+
+                                snippet = full_text.replace("\n", " ").strip()[:140]
+                                first_line = full_text.splitlines()[0] if full_text else "推文"
+                                display_title = first_line[:45] + ("..." if len(first_line) > 45 else "")
+
+                                cat, subcat = rule_classify_tweet(full_text, display_title)
+
+                                all_tweets.append({
+                                    "id": rest_id,
+                                    "filename": f"tweet_{rest_id}.md",
+                                    "category": cat,
+                                    "sub_category": subcat,
+                                    "title": display_title,
+                                    "author": name or screen_name,
+                                    "username": screen_name,
+                                    "avatar": avatar_url,
+                                    "url": f"https://x.com/{screen_name}/status/{rest_id}",
+                                    "created_at": created_at,
+                                    "likes": fav_count,
+                                    "retweets": retweet_count,
+                                    "views": views_count,
+                                    "has_media": bool(images),
+                                    "media_type": "image" if images else "",
+                                    "images": images,
+                                    "videos": [],
+                                    "snippet": snippet,
+                                    "body_raw": full_text
+                                })
+
+            # 如果没有下一页游标，或者游标未变，或者本页没有新推文，说明已到达历史最底层
+            if not next_cursor or next_cursor == cursor or page_new_count == 0:
+                break
+            cursor = next_cursor
+
+        return True, f"成功连续翻页同步 {page_count} 页，共拉取 {len(all_tweets)} 篇云端书签！", all_tweets
     except urllib.error.HTTPError as e:
-        return False, f"X 平台返回错误 (HTTP {e.code})", []
+        return False, f"X 平台返回错误 (HTTP {e.code})", all_tweets
     except Exception as ex:
-        return False, f"拉取失败: {str(ex)}", []
+        return False, f"拉取失败: {str(ex)}", all_tweets
 
 
 class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
@@ -388,8 +409,8 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                     pass
 
         if parsed.path == "/api/bookmarks/sync":
-            # 实时从云端拉取书签并合并到本地数据库中
-            success, msg, remote_tweets = fetch_remote_bookmarks(max_count=50)
+            # 实时从云端拉取全量历史书签（多页游标循环）并合并到本地数据库中
+            success, msg, remote_tweets = fetch_remote_bookmarks(max_pages=25)
             if success:
                 # 读取已有数据进行合并去重
                 existing_map = {}
@@ -401,7 +422,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                     except Exception:
                         pass
                 
-                # 新推文插入到头部
+                # 新推文插入
                 new_add_count = 0
                 for rt in remote_tweets:
                     tid = rt.get("id")
@@ -418,9 +439,10 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "success": True,
-                    "message": f"{msg} (新增入库 {new_add_count} 篇，总计 {len(combined_list)} 篇)",
-                    "count": len(combined_list)
-                }).encode("utf-8"))
+                    "message": f"{msg} (新增入库 {new_add_count} 篇，目前本地库总计 {len(combined_list)} 篇)",
+                    "count": len(combined_list),
+                    "data": remote_tweets
+                }, ensure_ascii=False).encode("utf-8"))
             else:
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
