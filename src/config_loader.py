@@ -21,13 +21,39 @@ PROMPT_CLASSIFY_PATH = BASE_DIR / "prompts" / "classify_system.txt"
 
 
 def parse_simple_toml(content: str) -> dict:
-    """零第三方依赖的极简 TOML 解析器 (适配标准 Python 与 Pyodide 环境)"""
+    """零第三方依赖 TOML 子集解析器，支持本项目使用的多行数组。"""
     data = {}
     current_section = None
+    pending_array_key = None
+    pending_array_target = None
+    pending_array_parts = []
 
-    for line in content.splitlines():
-        line = line.strip()
+    def parse_array_items(raw: str) -> list[str]:
+        inner = raw.strip()
+        if inner.startswith("["):
+            inner = inner[1:]
+        if inner.endswith("]"):
+            inner = inner[:-1]
+        items = []
+        for item in inner.split(","):
+            cleaned = item.strip().strip('"').strip("'")
+            if cleaned:
+                items.append(cleaned)
+        return items
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#"):
+            continue
+
+        if pending_array_key is not None:
+            pending_array_parts.append(line)
+            if line.endswith("]"):
+                raw = " ".join(pending_array_parts)
+                pending_array_target[pending_array_key] = parse_array_items(raw)
+                pending_array_key = None
+                pending_array_target = None
+                pending_array_parts = []
             continue
 
         if line.startswith("[") and line.endswith("]"):
@@ -36,32 +62,34 @@ def parse_simple_toml(content: str) -> dict:
                 data[current_section] = {}
             continue
 
-        if "=" in line:
-            k, v = line.split("=", 1)
-            k = k.strip()
-            v = v.strip()
+        if "=" not in line:
+            continue
 
-            target = data[current_section] if current_section else data
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        target = data[current_section] if current_section else data
 
-            if v.startswith("[") and v.endswith("]"):
-                inner = v[1:-1].strip()
-                items = []
-                if inner:
-                    for item in re.split(r",\s*", inner):
-                        cleaned = item.strip().strip('"').strip("'")
-                        if cleaned:
-                            items.append(cleaned)
-                target[k] = items
-            elif v.lower() == "true":
-                target[k] = True
-            elif v.lower() == "false":
-                target[k] = False
-            elif v.isdigit():
-                target[k] = int(v)
-            elif re.match(r"^\d+\.\d+$", v):
-                target[k] = float(v)
+        if v.startswith("["):
+            if v.endswith("]"):
+                target[k] = parse_array_items(v)
             else:
-                target[k] = v.strip('"').strip("'")
+                pending_array_key = k
+                pending_array_target = target
+                pending_array_parts = [v]
+        elif v.lower() == "true":
+            target[k] = True
+        elif v.lower() == "false":
+            target[k] = False
+        elif re.match(r"^-?\d+$", v):
+            target[k] = int(v)
+        elif re.match(r"^-?\d+\.\d+$", v):
+            target[k] = float(v)
+        else:
+            target[k] = v.strip('"').strip("'")
+
+    if pending_array_key is not None:
+        raise ValueError(f"未闭合的 TOML 数组: {pending_array_key}")
 
     return data
 
@@ -102,7 +130,10 @@ class AppConfig:
         # Twitter Web API 协议常量 (严格来自 config.toml 单一真源)
         twitter_cfg = parsed.get("twitter", {})
         self.twitter_bearer = str(twitter_cfg.get("bearer_token", ""))
+        self.query_id_registry_url = str(twitter_cfg.get("query_id_registry_url", ""))
         self.query_id_bookmarks = str(twitter_cfg.get("query_id_bookmarks", ""))
+        fallbacks = twitter_cfg.get("query_id_bookmarks_fallbacks", [])
+        self.query_id_bookmarks_fallbacks = list(fallbacks) if isinstance(fallbacks, list) else []
         self.query_id_create = str(twitter_cfg.get("query_id_create", ""))
         self.query_id_delete = str(twitter_cfg.get("query_id_delete", ""))
 
