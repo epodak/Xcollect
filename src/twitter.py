@@ -2,15 +2,18 @@
 """Twitter / X API 交互客户端模块。
 
 职责：
-1. X 用户头像高分辨率提取与转换
-2. X Bookmark API 交互（添加书签 / 删除书签）
-3. 游标深度翻页拉取远端书签时间线并实时结构化解析
+1. X 用户头像与媒体字段结构化提取
+2. X Bookmark API 添加 / 删除
+3. Bookmarks GraphQL queryId 动态解析与 fallback
+4. 游标连续翻页抓取
+5. 同步阶段只做零网络开销的规则投影，AI 深分类交给独立批处理端点
 """
 
 import json
 import urllib.parse
+
 from config_loader import CONFIG
-from classifier import ai_classify_tweet
+from classifier import rule_classify_tweet
 
 try:
     from js import Headers, Object as JsObject, fetch as js_fetch
@@ -20,17 +23,36 @@ except ImportError:
     js_fetch = None
 
 TWITTER_BEARER = CONFIG.twitter_bearer
-QUERY_ID_BOOKMARKS = CONFIG.query_id_bookmarks
 QUERY_ID_CREATE = CONFIG.query_id_create
 QUERY_ID_DELETE = CONFIG.query_id_delete
+_BOOKMARK_QUERY_IDS_CACHE = None
+
+BOOKMARK_FEATURES = {
+    "graphql_timeline_v2_bookmark_timeline": True,
+    "responsive_web_graphql_exclude_directive_enabled": True,
+    "verified_phone_label_enabled": False,
+    "creator_subscriptions_tweet_preview_api_enabled": True,
+    "responsive_web_graphql_timeline_navigation_enabled": True,
+    "responsive_web_graphql_skip_user_profile_image_extensions_enabled": False,
+    "c9s_tweet_anatomy_moderator_badge_enabled": True,
+    "tweetypie_unmention_optimization_enabled": True,
+    "responsive_web_edit_tweet_api_enabled": True,
+    "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+    "view_counts_everywhere_api_enabled": True,
+    "longform_notetweets_consumption_enabled": True,
+    "responsive_web_twitter_article_tweet_consumption_enabled": True,
+    "tweet_awards_web_tipping_enabled": False,
+    "freedom_of_speech_not_reach_fetch_enabled": True,
+    "standardized_nudges_misinfo": True,
+    "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": True,
+    "rweb_video_timestamps_enabled": True,
+    "longform_notetweets_rich_text_read_enabled": True,
+    "longform_notetweets_inline_media_enabled": True,
+    "responsive_web_enhance_cards_enabled": False,
+}
 
 
 def normalize_avatar_url(url: str) -> str:
-    """将 X 返回的头像 URL 规范化为更高清的版本。
-
-    X GraphQL 的 core.user_results.result.avatar.image_url 默认返回 _normal (48px)，
-    直接把尺寸后缀替换为 _400x400 即可得到高清头像，且 pbs.twimg.com 无需鉴权即可公开访问。
-    """
     if not url:
         return ""
     for suffix in ("_normal", "_bigger", "_mini", "_reasonably_small"):
@@ -39,10 +61,26 @@ def normalize_avatar_url(url: str) -> str:
     return url
 
 
-def extract_avatar(user_result: dict) -> str:
-    """从 X GraphQL 的 user_results.result 中提取作者头像 URL（兼容多套字段结构）"""
+def _unwrap_user_result(user_result: dict) -> dict:
     if not isinstance(user_result, dict):
-        return ""
+        return {}
+    if user_result.get("__typename") == "UserWithVisibilityResults":
+        return user_result.get("user", {}) or {}
+    return user_result
+
+
+def _unwrap_tweet_result(tweet_result: dict) -> dict:
+    if not isinstance(tweet_result, dict):
+        return {}
+    if tweet_result.get("__typename") == "TweetWithVisibilityResults":
+        return tweet_result.get("tweet", {}) or {}
+    if isinstance(tweet_result.get("tweet"), dict):
+        return tweet_result.get("tweet", {}) or {}
+    return tweet_result
+
+
+def extract_avatar(user_result: dict) -> str:
+    user_result = _unwrap_user_result(user_result)
     url = user_result.get("avatar", {}).get("image_url", "")
     if not url:
         url = user_result.get("legacy", {}).get("profile_image_url_https", "")
@@ -50,7 +88,6 @@ def extract_avatar(user_result: dict) -> str:
 
 
 def build_x_headers(auth_token: str, ct0: str):
-    """构建访问 X GraphQL API 所需的完整身份认证 Headers。"""
     if Headers is None:
         return None
     h = Headers.new()
@@ -58,148 +95,269 @@ def build_x_headers(auth_token: str, ct0: str):
     h.set("x-csrf-token", ct0)
     h.set("x-twitter-active-user", "yes")
     h.set("x-twitter-auth-type", "OAuth2Session")
+    h.set("x-twitter-client-language", "en")
+    h.set("accept", "*/*")
+    h.set("accept-language", "en-US,en;q=0.9")
     h.set("content-type", "application/json")
-    h.set(
-        "user-agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    )
+    h.set("referer", "https://x.com/i/bookmarks")
+    h.set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
     h.set("cookie", f"auth_token={auth_token}; ct0={ct0};")
     return h
 
 
+def _dedupe(values: list[str]) -> list[str]:
+    out = []
+    seen = set()
+    for value in values:
+        value = str(value or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
+
+
+async def resolve_bookmark_query_ids() -> list[str]:
+    """优先动态解析 Bookmarks queryId，失败时使用 config.toml fallback。"""
+    global _BOOKMARK_QUERY_IDS_CACHE
+    if _BOOKMARK_QUERY_IDS_CACHE:
+        return list(_BOOKMARK_QUERY_IDS_CACHE)
+
+    candidates = []
+    registry_url = getattr(CONFIG, "query_id_registry_url", "") or ""
+    if registry_url and js_fetch is not None:
+        try:
+            resp = await js_fetch(registry_url)
+            if int(getattr(resp, "status", 200) or 200) == 200:
+                payload = json.loads(await resp.text())
+                operation = payload.get("Bookmarks", {}) if isinstance(payload, dict) else {}
+                registry_id = operation.get("queryId", "") if isinstance(operation, dict) else ""
+                if registry_id:
+                    candidates.append(registry_id)
+        except Exception as err:
+            print("Bookmarks queryId registry 解析失败，使用本地 fallback:", str(err))
+
+    candidates.append(getattr(CONFIG, "query_id_bookmarks", "") or "")
+    candidates.extend(getattr(CONFIG, "query_id_bookmarks_fallbacks", []) or [])
+    _BOOKMARK_QUERY_IDS_CACHE = _dedupe(candidates)
+    return list(_BOOKMARK_QUERY_IDS_CACHE)
+
+
+def _build_bookmarks_url(query_id: str, cursor=None) -> str:
+    variables = {"count": 50, "includePromotedContent": False}
+    if cursor:
+        variables["cursor"] = cursor
+    params = {
+        "variables": json.dumps(variables, separators=(",", ":")),
+        "features": json.dumps(BOOKMARK_FEATURES, separators=(",", ":")),
+    }
+    return f"https://x.com/i/api/graphql/{query_id}/Bookmarks?" + urllib.parse.urlencode(params)
+
+
+def _extract_timeline(raw_data: dict):
+    data = raw_data.get("data", {}) if isinstance(raw_data, dict) else {}
+    v2 = data.get("bookmark_timeline_v2")
+    if isinstance(v2, dict) and isinstance(v2.get("timeline"), dict):
+        return v2.get("timeline")
+    legacy = data.get("bookmark_timeline")
+    if isinstance(legacy, dict) and isinstance(legacy.get("timeline"), dict):
+        return legacy.get("timeline")
+    return None
+
+
+def _extract_media(legacy: dict):
+    images = []
+    videos = []
+    for media in ((legacy.get("extended_entities", {}) or {}).get("media", []) or []):
+        media_type = media.get("type", "")
+        if media_type == "photo" and media.get("media_url_https"):
+            images.append(media["media_url_https"])
+        elif media_type in ("video", "animated_gif"):
+            variants = (media.get("video_info", {}) or {}).get("variants", []) or []
+            mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
+            mp4s.sort(key=lambda v: int(v.get("bitrate", 0) or 0), reverse=True)
+            if mp4s:
+                videos.append({"url": mp4s[0]["url"], "poster": media.get("media_url_https", ""), "type": media_type})
+    return images, videos
+
+
 async def call_x_bookmark_api(tweet_id: str, action: str, auth_token: str, ct0: str) -> tuple[bool, str]:
-    """调用 X 官方 GraphQL 接口添加或删除书签。"""
     if js_fetch is None:
         return False, "当前运行环境不支持 js_fetch"
-
     query_id = QUERY_ID_CREATE if action == "create" else QUERY_ID_DELETE
     endpoint = "CreateBookmark" if action == "create" else "DeleteBookmark"
     x_url = f"https://x.com/i/api/graphql/{query_id}/{endpoint}"
-
-    h = build_x_headers(auth_token, ct0)
     init = JsObject.new()
     init.method = "POST"
-    init.headers = h
+    init.headers = build_x_headers(auth_token, ct0)
     init.body = json.dumps({"variables": {"tweet_id": str(tweet_id)}})
-
     x_resp = await js_fetch(x_url, init)
+    status = int(getattr(x_resp, "status", 0) or 0)
     res_text = await x_resp.text()
-    res_data = json.loads(res_text)
-
+    try:
+        res_data = json.loads(res_text)
+    except Exception:
+        return False, f"X {endpoint} 返回非 JSON (HTTP {status}): {res_text[:180]}"
+    if status not in (200, 201):
+        return False, f"X {endpoint} HTTP {status}: {res_text[:180]}"
     if "errors" in res_data:
-        err_msg = res_data["errors"][0].get("message", "X API error")
-        return False, err_msg
+        return False, res_data["errors"][0].get("message", "X API error")
     return True, f"成功从 X 云端同步: {endpoint}"
 
 
-async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, existing_cats: list[str], env) -> list[dict]:
-    """支持游标连续翻页深度拉取推特书签，并调用分类器完成标签分配。"""
+async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, existing_cats: list[str], env):
+    """游标连续翻页拉取书签；同步阶段不执行逐条远程 AI 调用。"""
     if js_fetch is None:
-        return []
+        raise RuntimeError("当前 Worker 运行环境不支持 js_fetch")
 
-    features = {
-        "rweb_video_screen_enabled": False,
-        "rweb_cashtags_enabled": True,
-        "profile_label_improvements_pcf_label_in_post_enabled": True,
-        "responsive_web_graphql_timeline_navigation_enabled": True,
-        "view_counts_everywhere_api_enabled": True,
-        "longform_notetweets_consumption_enabled": True,
-    }
+    query_ids = await resolve_bookmark_query_ids()
+    if not query_ids:
+        raise RuntimeError("没有可用的 Bookmarks GraphQL queryId")
 
     cursor = None
     pulled = []
     seen_ids = set()
+    selected_query_id = None
+    pages_fetched = 0
+    query_failures = []
 
-    for page in range(max_pages):
-        params_vars = {"count": 50, "includePromotedContent": False}
-        if cursor:
-            params_vars["cursor"] = cursor
+    for _page in range(max_pages):
+        timeline = None
+        candidate_ids = [selected_query_id] if selected_query_id else query_ids
 
-        params = {
-            "variables": json.dumps(params_vars),
-            "features": json.dumps(features),
-        }
-        q_str = urllib.parse.urlencode(params)
-        x_url = f"https://x.com/i/api/graphql/{QUERY_ID_BOOKMARKS}/Bookmarks?{q_str}"
-        h = build_x_headers(auth_token, ct0)
-        init = JsObject.new()
-        init.method = "GET"
-        init.headers = h
+        for query_id in candidate_ids:
+            if not query_id:
+                continue
+            init = JsObject.new()
+            init.method = "GET"
+            init.headers = build_x_headers(auth_token, ct0)
+            resp = await js_fetch(_build_bookmarks_url(query_id, cursor), init)
+            status = int(getattr(resp, "status", 0) or 0)
+            raw_text = await resp.text()
 
-        resp = await js_fetch(x_url, init)
-        raw_text = await resp.text()
-        if getattr(resp, "status", 200) not in (200, 201):
-            raise RuntimeError(f"X API 返回 HTTP {getattr(resp, 'status', 0)}: {raw_text[:200]}")
-        raw_data = json.loads(raw_text)
+            if status in (401, 403):
+                raise RuntimeError(
+                    f"X 凭证失效、CSRF 不匹配或服务端拒绝请求 (HTTP {status})。"
+                    "请重新从 x.com 获取 auth_token 与 ct0，并确认二者来自同一登录会话。"
+                )
+            if status not in (200, 201):
+                query_failures.append(f"{query_id}: HTTP {status} {raw_text[:120]}")
+                continue
+            try:
+                raw_data = json.loads(raw_text)
+            except Exception:
+                query_failures.append(f"{query_id}: 非 JSON 响应 {raw_text[:120]}")
+                continue
+            if raw_data.get("errors"):
+                query_failures.append(f"{query_id}: {raw_data['errors'][0].get('message', 'GraphQL error')}")
+                continue
+            timeline = _extract_timeline(raw_data)
+            if timeline is None:
+                query_failures.append(f"{query_id}: 响应缺少 bookmark_timeline")
+                continue
+            selected_query_id = query_id
+            break
 
-        instructions = (
-            raw_data.get("data", {})
-            .get("bookmark_timeline_v2", {})
-            .get("timeline", {})
-            .get("instructions", [])
-        )
+        if timeline is None and selected_query_id is not None:
+            failed_id = selected_query_id
+            selected_query_id = None
+            for query_id in [qid for qid in query_ids if qid != failed_id]:
+                init = JsObject.new()
+                init.method = "GET"
+                init.headers = build_x_headers(auth_token, ct0)
+                resp = await js_fetch(_build_bookmarks_url(query_id, cursor), init)
+                status = int(getattr(resp, "status", 0) or 0)
+                raw_text = await resp.text()
+                if status in (401, 403):
+                    raise RuntimeError(f"X 凭证失效或请求被拒绝 (HTTP {status})")
+                if status not in (200, 201):
+                    query_failures.append(f"{query_id}: HTTP {status}")
+                    continue
+                try:
+                    raw_data = json.loads(raw_text)
+                except Exception:
+                    continue
+                candidate_timeline = _extract_timeline(raw_data)
+                if candidate_timeline is not None and not raw_data.get("errors"):
+                    selected_query_id = query_id
+                    timeline = candidate_timeline
+                    break
+
+        if timeline is None:
+            detail = " | ".join(query_failures[-4:]) or "无可用响应"
+            raise RuntimeError("X Bookmarks GraphQL 协议不可用；可能是 queryId 已轮换或请求特征发生变化。最后诊断: " + detail)
+
+        pages_fetched += 1
         page_new_count = 0
         next_cursor = None
 
-        for ins in instructions:
-            if ins.get("type") == "TimelineAddEntries":
-                for entry in ins.get("entries", []):
-                    eid = entry.get("entryId", "")
-                    content = entry.get("content", {})
+        for ins in timeline.get("instructions", []) or []:
+            entries = ins.get("entries", []) or []
+            if not entries and isinstance(ins.get("entry"), dict):
+                entries = [ins["entry"]]
+            for entry in entries:
+                eid = entry.get("entryId", "")
+                content = entry.get("content", {}) or {}
+                if "cursor-bottom" in eid or content.get("cursorType") == "Bottom":
+                    next_cursor = content.get("value") or (content.get("itemContent", {}) or {}).get("value")
+                if "tweet" not in eid:
+                    continue
 
-                    # 提取底部翻页游标
-                    if "cursor-bottom" in eid or content.get("cursorType") == "Bottom":
-                        next_cursor = content.get("value") or content.get("itemContent", {}).get("value")
+                item_content = content.get("itemContent", {}) or {}
+                t_res = _unwrap_tweet_result((item_content.get("tweet_results", {}) or {}).get("result", {}) or {})
+                rest_id = str(t_res.get("rest_id", "") or "")
+                if not rest_id or rest_id in seen_ids:
+                    continue
 
-                    if "tweet" in eid:
-                        t_res = content.get("itemContent", {}).get("tweet_results", {}).get("result", {})
-                        if "tweet" in t_res:
-                            t_res = t_res["tweet"]
-                        rest_id = t_res.get("rest_id", "")
-                        if rest_id and rest_id not in seen_ids:
-                            seen_ids.add(rest_id)
-                            page_new_count += 1
+                seen_ids.add(rest_id)
+                page_new_count += 1
+                legacy = t_res.get("legacy", {}) or {}
+                user_res = _unwrap_user_result((t_res.get("core", {}) or {}).get("user_results", {}).get("result", {}) or {})
+                user_core = user_res.get("core", {}) or {}
+                avatar_url = extract_avatar(user_res)
+                name = user_core.get("name", "")
+                s_name = user_core.get("screen_name", "")
+                text = legacy.get("full_text", "") or ""
+                created_at = legacy.get("created_at", "")
+                likes = int(legacy.get("favorite_count", 0) or 0)
+                retweets = int(legacy.get("retweet_count", 0) or 0)
+                views = int((t_res.get("views", {}) or {}).get("count", 0) or 0)
+                images, videos = _extract_media(legacy)
+                snippet = text.replace("\n", " ").strip()[:140]
+                first_line = text.splitlines()[0] if text else "推文"
+                title = first_line[:45] + ("..." if len(first_line) > 45 else "")
+                cat, subcat = rule_classify_tweet(text, title)
 
-                            legacy = t_res.get("legacy", {})
-                            user_res = t_res.get("core", {}).get("user_results", {}).get("result", {})
-                            user_core = user_res.get("core", {})
-                            avatar_url = extract_avatar(user_res)
-                            name = user_core.get("name", "")
-                            s_name = user_core.get("screen_name", "")
-                            text = legacy.get("full_text", "")
-                            created_at = legacy.get("created_at", "")
-                            likes = legacy.get("favorite_count", 0)
-                            retweets = legacy.get("retweet_count", 0)
-                            views = int(t_res.get("views", {}).get("count", 0) or 0)
-                            snippet = text.replace("\n", " ")[:140]
-                            title = text.splitlines()[0][:45] if text else "推文"
-                            url_t = f"https://x.com/{s_name}/status/{rest_id}"
+                pulled.append({
+                    "id": rest_id,
+                    "author": name or s_name,
+                    "username": s_name,
+                    "avatar": avatar_url,
+                    "title": title,
+                    "snippet": snippet,
+                    "likes": likes,
+                    "retweets": retweets,
+                    "views": views,
+                    "category": cat,
+                    "sub_category": subcat,
+                    "body_raw": text,
+                    "url": f"https://x.com/{s_name}/status/{rest_id}",
+                    "created_at": created_at,
+                    "has_media": bool(images or videos),
+                    "media_type": "video" if videos else ("image" if images else ""),
+                    "images": images,
+                    "videos": videos,
+                    "classify_status": "projected",
+                })
 
-                            cat, subcat = await ai_classify_tweet(text, title, existing_cats, env)
-                            if cat not in existing_cats:
-                                existing_cats.append(cat)
-
-                            pulled.append({
-                                "id": rest_id,
-                                "author": name or s_name,
-                                "username": s_name,
-                                "avatar": avatar_url,
-                                "title": title,
-                                "snippet": snippet,
-                                "likes": likes,
-                                "retweets": retweets,
-                                "views": views,
-                                "category": cat,
-                                "sub_category": subcat,
-                                "body_raw": text,
-                                "url": url_t,
-                                "created_at": created_at,
-                                "classify_status": "projected",
-                            })
-
-        # 翻页终止判定：无下游标、游标未前进、或本页无新推文
         if not next_cursor or next_cursor == cursor or page_new_count == 0:
             break
         cursor = next_cursor
 
-    return pulled
+    return pulled, {
+        "query_id": selected_query_id,
+        "query_id_candidates": query_ids,
+        "pages_fetched": pages_fetched,
+        "pulled_count": len(pulled),
+        "classification": "rule_projection",
+        "query_failures": query_failures[-4:],
+    }
