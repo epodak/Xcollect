@@ -29,13 +29,21 @@
       width: 38px;
       height: 38px;
       border-radius: 9px;
-      background: linear-gradient(135deg, rgb(var(--c-brand)), rgb(var(--c-brand-deep)));
+      overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgb(var(--c-sunken));
-      font-weight: 700;
-      box-shadow: 0 0 20px rgb(var(--c-brand) / 0.25);
+      box-shadow: 0 0 16px rgb(var(--c-brand) / 0.35);
+      border: 1px solid rgb(var(--c-brand) / 0.4);
+      flex-shrink: 0;
+      background: rgb(var(--c-card));
+    }
+
+    .brand-logo-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
 
     .brand-title {

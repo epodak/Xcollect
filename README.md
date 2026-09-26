@@ -1,4 +1,9 @@
-# 𝕏 书签智能聚合看板 (Xcollect)
+<p align="center">
+  <img src="./public/images/logo.jpg" alt="Xcollect Logo" width="160px" style="border-radius: 28px; box-shadow: 0 10px 30px rgba(13, 148, 136, 0.4);">
+</p>
+
+<h1 align="center">𝕏 书签智能聚合看板 (Xcollect)</h1>
+<p align="center"><b>Twitter / 𝕏 书签双向云同步中枢与极客知识资产库</b></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Cost-100%25_Free_Tier-brightgreen?style=for-the-badge&logo=cloudflare" alt="100% Free">
