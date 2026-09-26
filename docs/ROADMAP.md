@@ -394,6 +394,16 @@ At large scale, the fixed point is closer to:
 
 The system should gradually compress thousands of individual saved items into a smaller number of durable exploration themes without destroying the ability to recover the original evidence.
 
+## 11. External reference landscape
+
+The roadmap should be evaluated against adjacent products and open-source projects rather than in isolation.
+
+See:
+
+- [Exploration Tools Landscape](./research/EXPLORATION_TOOLS_LANDSCAPE.md) — X/Twitter bookmark tools, GitHub Stars managers, self-hosted bookmark systems, multi-source collection systems, agent-memory projects, and build-vs-borrow references.
+
+This research is maintained separately from the roadmap so market observations can change without rewriting the product thesis.
+
 ---
 
 Current implementation starts with X / Twitter because it provides a concrete, high-frequency test bed.
