@@ -5,6 +5,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.17.1",
   "scripts": {
+    "predev": "node -e \"const fs = require('fs'); if (fs.existsSync('.env')) fs.copyFileSync('.env', '.dev.vars');\"",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "serve:local": "python local_server.py",

@@ -171,10 +171,16 @@ def get_credentials():
     return creds
 
 def save_credentials(auth_token, ct0):
-    """保存凭证至本地私有真源 .env"""
+    """保存凭证至本地私有真源 .env 及 Cloudflare 本地机密文件 .dev.vars"""
     data = {"auth_token": auth_token.strip(), "ct0": ct0.strip()}
     with open(ENV_FILE, "w", encoding="utf-8") as f:
         f.write(f"# X 身份凭证 (由本地开发服务器写入，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
+    try:
+        dev_vars_file = os.path.join(os.path.dirname(__file__), ".dev.vars")
+        with open(dev_vars_file, "w", encoding="utf-8") as f:
+            f.write(f"# Cloudflare Wrangler 本地开发机密注入文件 (由 .env 同步，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
+    except Exception:
+        pass
     return data
 
 def get_base_headers(auth_token, ct0):

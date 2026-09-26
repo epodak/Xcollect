@@ -5,6 +5,7 @@
 # 1. 敏感机密隔离 (绝不上库)
 .env
 .env.*
+.dev.vars
 !.env.example
 *.local.toml
 config.local.toml

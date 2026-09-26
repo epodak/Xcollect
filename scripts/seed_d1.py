@@ -106,7 +106,7 @@ def main():
         cmd = ["npx", "wrangler", "d1", "execute", args.db_name, target_flag, f"--file={sql_path}"]
         print(f"\n🚀 正在执行命令: {' '.join(cmd)}")
         try:
-            res = subprocess.run(cmd, cwd=root_dir, check=True)
+            res = subprocess.run(cmd, cwd=root_dir, check=True, shell=True)
             print(f"\n🎉 D1 数据成功写入 ({target_flag})！")
         except subprocess.CalledProcessError as e:
             print(f"\n❌ 执行失败 (退出码 {e.returncode})，请确保已安装 wrangler 并正确配置 D1 绑定。")
