@@ -127,30 +127,50 @@
     <!-- 主展示区 -->
     <main class="content-area">
       
-      <!-- 控制栏：排序、视角切换与移动端抽屉唤起 -->
+      <!-- 控制栏：排序平铺胶囊、视角切换与移动端抽屉唤起 -->
       <div class="control-bar">
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; flex-wrap: wrap;">
-          <button class="btn-action mobile-filter-btn" id="openDrawerBtn" style="display: none;" title="打开完整分类与高级过滤">
-            <span>⚡ 高级筛选</span>
-          </button>
-
-          <div class="sort-group">
-            <span>排序:</span>
-            <select id="sortSelect" class="sort-select">
-              <option value="likes_desc">❤️ 最多点赞 (从高到低)</option>
-              <option value="views_desc">👀 最多浏览量 (从高到低)</option>
-              <option value="retweets_desc">🔁 最多转发量 (从高到低)</option>
-              <option value="date_desc">🕒 最新发布时间 (最新优先)</option>
-              <option value="date_asc">⏳ 最早发布时间 (最早优先)</option>
-            </select>
+        <div class="sort-pills-wrap">
+          <span class="sort-label">排序:</span>
+          <div class="sort-pills" id="sortPills" role="radiogroup" aria-label="推文排序方式">
+            <button class="sort-pill active" data-sort="likes_desc" role="radio" aria-checked="true" title="按点赞量从高到低排序">
+              <span class="pill-icon">❤️</span>
+              <span class="pill-text">最多点赞</span>
+            </button>
+            <button class="sort-pill" data-sort="views_desc" role="radio" aria-checked="false" title="按浏览量从高到低排序">
+              <span class="pill-icon">👀</span>
+              <span class="pill-text">最多浏览</span>
+            </button>
+            <button class="sort-pill" data-sort="retweets_desc" role="radio" aria-checked="false" title="按转发量从高到低排序">
+              <span class="pill-icon">🔁</span>
+              <span class="pill-text">最多转发</span>
+            </button>
+            <button class="sort-pill" data-sort="date_desc" role="radio" aria-checked="false" title="按发布时间从新到旧排序">
+              <span class="pill-icon">🕒</span>
+              <span class="pill-text">最新发布</span>
+            </button>
+            <button class="sort-pill" data-sort="date_asc" role="radio" aria-checked="false" title="按发布时间从早到晚排序">
+              <span class="pill-icon">⏳</span>
+              <span class="pill-text">最早发布</span>
+            </button>
           </div>
+          <!-- 兼容隐藏 select 元素 -->
+          <select id="sortSelect" class="sort-select" style="display:none;" aria-hidden="true">
+            <option value="likes_desc">最多点赞</option>
+            <option value="views_desc">最多浏览</option>
+            <option value="retweets_desc">最多转发</option>
+            <option value="date_desc">最新发布</option>
+            <option value="date_asc">最早发布</option>
+          </select>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 0.6rem;">
+        <div class="control-actions-wrap">
+          <button class="btn-action mobile-filter-btn" id="openDrawerBtn" style="display: none;" title="打开完整分类与高级过滤">
+            <span>⚡ 分类筛选</span>
+          </button>
           <div class="view-mode-btns">
-            <button class="view-btn active" id="btnGridView" title="整齐等高卡片网格 (推荐)">⊞ 等高网格</button>
-            <button class="view-btn" id="btnCompactView" title="紧凑自然瀑布流网格">▤ 紧凑网格</button>
-            <button class="view-btn" id="btnListView" title="单列流式列表">☰ 单列列表</button>
+            <button class="view-btn active" id="btnGridView" title="整齐等高卡片网格 (推荐)">⊞ 等高</button>
+            <button class="view-btn" id="btnCompactView" title="紧凑自然瀑布流网格">▤ 紧凑</button>
+            <button class="view-btn" id="btnListView" title="单列流式列表">☰ 单列</button>
           </div>
         </div>
       </div>

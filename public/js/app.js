@@ -395,12 +395,43 @@ function setupEventListeners() {
         applyFiltersAndRender();
       });
 
-      // 排序
+      // 排序平铺胶囊与下拉框事件联动
+      const sortPills = document.querySelectorAll(".sort-pill");
       const sortSelect = document.getElementById("sortSelect");
-      sortSelect.addEventListener("change", (e) => {
-        sortMode = e.target.value;
+
+      function updateSortMode(newSort, scrollIntoCenter = false) {
+        if (!newSort) return;
+        sortMode = newSort;
+        sortPills.forEach(pill => {
+          const isMatch = pill.dataset.sort === newSort;
+          pill.classList.toggle("active", isMatch);
+          pill.setAttribute("aria-checked", isMatch ? "true" : "false");
+          if (isMatch && scrollIntoCenter) {
+            try {
+              pill.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+            } catch (e) {}
+          }
+        });
+        if (sortSelect && sortSelect.value !== newSort) {
+          sortSelect.value = newSort;
+        }
         applyFiltersAndRender();
+      }
+
+      sortPills.forEach(pill => {
+        pill.addEventListener("click", () => {
+          const chosenSort = pill.dataset.sort;
+          if (chosenSort && chosenSort !== sortMode) {
+            updateSortMode(chosenSort, true);
+          }
+        });
       });
+
+      if (sortSelect) {
+        sortSelect.addEventListener("change", (e) => {
+          updateSortMode(e.target.value, true);
+        });
+      }
 
       // 过滤复选框
       document.getElementById("filterBookmarked").addEventListener("change", (e) => {
