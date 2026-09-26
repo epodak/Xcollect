@@ -122,7 +122,6 @@ async function initApp() {
     const d1Data = await api.getTweets();
     if (d1Data && d1Data.success && Array.isArray(d1Data.data)) {
       const newTweets = d1Data.data;
-      const countChanged = (tweets.length !== newTweets.length);
       tweets = newTweets;
       window.tweets = tweets;
 
@@ -135,11 +134,9 @@ async function initApp() {
         brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
       }
 
-      // 如果此前是骨架屏展示，或者数据篇数有变更，平滑更新界面
-      if (!hasValidCache || countChanged) {
-        renderCategories();
-        applyFiltersAndRender(false);
-      }
+      // 无论篇数是否变化，只要从边缘 D1 拉取到最新数据均重新渲染
+      renderCategories();
+      applyFiltersAndRender(false);
     }
   } catch (e) {
     console.warn("后台拉取最新推文失败:", e);

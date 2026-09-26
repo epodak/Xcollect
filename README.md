@@ -11,6 +11,10 @@
 
 > 基于 **Cloudflare Python Workers**、**Cloudflare D1** 边缘数据库与现代前端（深青 Petrol Teal 视觉系统）构建的 Twitter / 𝕏 书签实时双向同步中枢与知识资产库。**100% 运行于 Cloudflare 官方免费额度之内，零服务器成本，无需绑定信用卡。**
 
+<p align="center">
+  <img src="./public/images/feat_overview.png" alt="Xcollect 看板全景预览" width="100%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);">
+</p>
+
 ---
 
 ## ✨ 核心特性
