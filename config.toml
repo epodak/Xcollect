@@ -32,8 +32,8 @@ enable_offline_cache = true
 bearer_token = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 # Bookmarks queryId 会随 X Web 前端构建持续轮换；运行时优先从社区 registry 动态解析，以下仅作离线 fallback
 query_id_registry_url = "https://raw.githubusercontent.com/fa0311/twitter-openapi/refs/heads/main/src/config/placeholder.json"
-query_id_bookmarks = "2neUNDqrrFzbLui8yallcQ"
-query_id_bookmarks_fallbacks = ["i8QZ1qqy36ffA3bxfTaf7w", "XD0ViOeSOW4YoeNTGjVaYw"]
+query_id_bookmarks = "XD0ViOeSOW4YoeNTGjVaYw"
+query_id_bookmarks_fallbacks = ["2neUNDqrrFzbLui8yallcQ", "i8QZ1qqy36ffA3bxfTaf7w"]
 query_id_create = "aoDbu3RHznuiSkQ9aNM67Q"
 query_id_delete = "Wlmlj2-xzyS1GN3a6cj-mQ"
 
