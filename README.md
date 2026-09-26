@@ -1,6 +1,7 @@
 # 𝕏 书签智能聚合看板 (Xcollect)
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Cost-100%25_Free_Tier-brightgreen?style=for-the-badge&logo=cloudflare" alt="100% Free">
   <img src="https://img.shields.io/badge/Cloudflare_Workers-Python-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
   <img src="https://img.shields.io/badge/Database-Cloudflare_D1-0051C3?style=for-the-badge&logo=sqlite&logoColor=white" alt="Cloudflare D1">
   <img src="https://img.shields.io/badge/Package_Manager-pnpm-4A4A4A?style=for-the-badge&logo=pnpm&logoColor=white" alt="pnpm">
@@ -8,7 +9,7 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
 </p>
 
-> 基于 **Cloudflare Python Workers**、**Cloudflare D1** 边缘数据库与现代前端（深青 Petrol Teal 视觉系统）构建的 Twitter / 𝕏 书签实时双向同步中枢与知识资产库。
+> 基于 **Cloudflare Python Workers**、**Cloudflare D1** 边缘数据库与现代前端（深青 Petrol Teal 视觉系统）构建的 Twitter / 𝕏 书签实时双向同步中枢与知识资产库。**100% 运行于 Cloudflare 官方免费额度之内，零服务器成本，无需绑定信用卡。**
 
 ---
 
@@ -63,9 +64,17 @@ python local_server.py
 
 ---
 
-### 3. 方式 B：Cloudflare Workers + D1 边缘无服务部署
+### 3. 方式 B：Cloudflare Workers + D1 边缘无服务部署 (100% 永久免费)
 
-利用 Cloudflare Workers 免费层全球边缘加速与 D1 关系型数据库：
+本项目经过严格的资源优化设计，**完全运行在 Cloudflare 官方免费额度之内，0 运维成本，无需绑定信用卡**：
+
+> [!TIP]
+> **💰 Cloudflare 免费配额深度说明（个人使用充裕度 > 1000 倍）：**
+> - ⚡ **Cloudflare Workers**：每日 **100,000 次免费请求**（个人看板日常访问仅需数十次）。
+> - 🗄️ **Cloudflare D1 数据库**：每日 **5,000,000 次读操作 + 100,000 次写操作**，免费存储高达 **500 MB**（存储上万条推文仅占用数十 MB）。
+> - 🤖 **Cloudflare Workers AI**：每日赠送 **10,000 神经元计算额度**（支持每日自动分类数百篇最新推文）。
+> - 🌐 **全球 CDN 静态资产**：自带全球 Anycast 边缘加速，无限带宽托管。
+> - 💸 **零 API 费用**：直接基于个人 Web 凭据同步书签，彻底告别推特每月 $100+ 的官方昂贵 API。
 
 #### ① 安装依赖
 ```bash
@@ -74,7 +83,7 @@ pnpm install
 
 #### ② 创建并绑定 Cloudflare D1 数据库
 ```bash
-# 1. 创建 D1 数据库
+# 1. 创建 D1 数据库 (Cloudflare 账号内秒级免费生成，无需信用卡)
 npx wrangler d1 create x-bookmarks
 
 # 2. 将控制台输出中的 database_id 填入 wrangler.jsonc 中：
@@ -84,7 +93,7 @@ npx wrangler d1 create x-bookmarks
 pnpm run d1:init:local
 pnpm run d1:init:remote
 
-# 4. (可选) 导入预设推文种子数据 (包含 400+ 精选技术推文)
+# 4. (可选) 导入预设推文种子数据 (包含通用精选技术 Demo 推文)
 pnpm run d1:seed:local
 pnpm run d1:seed:remote
 ```
