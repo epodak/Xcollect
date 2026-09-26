@@ -209,7 +209,9 @@ Xcollect/
 ├── package.json          # pnpm 包管理器与脚本入口
 ├── local_server.py       # 本地独立全功能 Python 服务 (支持 --check 自验)
 ├── docs/
-│   └── ROADMAP.md        # Exploration 平台长期路径图
+│   ├── ROADMAP.md        # Exploration 平台长期路径图
+│   └── research/
+│       └── EXPLORATION_TOOLS_LANDSCAPE.md  # 市场、竞品与相邻开源方案参照
 ├── src/
 │   └── entry.py          # Cloudflare Python Worker 边缘业务网关与 D1 交互入口
 ├── public/               # 前端静态看板资产 (Petrol Teal 视觉系统)
