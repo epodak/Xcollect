@@ -322,6 +322,8 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
         "d1_error": "",
         "d1_queries": 0,
         "d1_existing_before": 0,
+        "d1_new": 0,
+        "d1_refreshed": 0,
         "d1_skipped_existing": 0,
         "order_changed": False,
         "kv_bound": bool(kv),
@@ -419,6 +421,8 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
                 if str(item.get("id", "")) not in existing_ids
             ]
             write_items = tweets if refresh_existing else new_items
+            details["d1_new"] = len(new_items)
+            details["d1_refreshed"] = max(0, len(write_items) - len(new_items))
             details["d1_skipped_existing"] = len(tweets) - len(write_items)
 
             normalized = []
@@ -554,11 +558,19 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
 
     if saved_to_d1:
         details["backend"] = "d1"
-        return (
-            True,
-            f"D1 新增写入 {details['d1_written']} 条，跳过已有 {details['d1_skipped_existing']} 条，当前表内共 {details['d1_row_count']} 条",
-            details,
-        )
+        if refresh_existing:
+            message = (
+                f"D1 完整刷新 {details['d1_written']} 条"
+                f"（新增 {details['d1_new']}，刷新已有 {details['d1_refreshed']}），"
+                f"当前表内共 {details['d1_row_count']} 条"
+            )
+        else:
+            message = (
+                f"D1 新增写入 {details['d1_new']} 条，"
+                f"跳过已有 {details['d1_skipped_existing']} 条，"
+                f"当前表内共 {details['d1_row_count']} 条"
+            )
+        return True, message, details
 
     if saved_to_kv:
         details["backend"] = "kv"
