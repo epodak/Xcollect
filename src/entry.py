@@ -5,15 +5,14 @@ import json
 import urllib.parse
 
 from config_loader import CONFIG
-from classifier import get_existing_categories
-from twitter import call_x_bookmark_api, fetch_remote_bookmarks
+from twitter import call_x_bookmark_api
+from sync_service import perform_cloud_sync
 from storage import (
     json_resp,
     load_tweets,
-    save_tweets,
     delete_tweet_from_storage,
     get_storage_status,
-    get_known_tweet_ids,
+    get_sync_status,
     get_topology_status,
     renormalize_topology,
     batch_classify_pending,
@@ -62,6 +61,9 @@ async def on_fetch(request, env):
         if path == "/api/storage/status":
             return json_resp(await get_storage_status(env))
 
+        if path == "/api/sync/status":
+            return json_resp(await get_sync_status(env))
+
         if path == "/api/bookmark/toggle" and method == "POST":
             body_text = await request.text()
             try:
@@ -94,90 +96,11 @@ async def on_fetch(request, env):
                 "tweet_id": tweet_id,
             })
 
-        # 保留 GET 兼容旧前端；新前端用 POST，因为同步会产生远端读取与本地写入副作用。
+        # 手动同步只是一个触发器。真正同步逻辑位于 sync_service，
+        # 与 Cloudflare Cron 共用，避免“后台一套、按钮一套”。
         if path == "/api/bookmarks/sync" and method in ("GET", "POST"):
-            auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
-            ct0 = getattr(env, "X_CT0", "") or ""
-            if not auth_token or not ct0:
-                return json_resp({
-                    "success": False,
-                    "error": "X_CREDENTIALS_MISSING",
-                    "message": (
-                        "生产 Worker 未配置 X_AUTH_TOKEN / X_CT0 Secret。"
-                        "网页输入框不能写入 Cloudflare Secret。"
-                    ),
-                }, 400)
-
-            try:
-                existing_cats = await get_existing_categories(env)
-                known_ids = await get_known_tweet_ids(env)
-                pulled, fetch_meta = await fetch_remote_bookmarks(
-                    auth_token,
-                    ct0,
-                    CONFIG.max_sync_pages,
-                    existing_cats,
-                    env,
-                    known_ids=known_ids,
-                )
-            except Exception as sync_err:
-                return json_resp({
-                    "success": False,
-                    "error": "X_SYNC_FAILED",
-                    "message": str(sync_err),
-                }, 502)
-
-            saved, storage_msg, storage_meta = await save_tweets(env, pulled)
-            storage_status = await get_storage_status(env)
-
-            if not saved:
-                return json_resp({
-                    "success": False,
-                    "error": "PERSISTENCE_FAILED",
-                    "message": f"X 已拉取 {len(pulled)} 条，但持久化失败：{storage_msg}",
-                    "pulled_count": len(pulled),
-                    "fetch": fetch_meta,
-                    "storage": storage_meta,
-                    "storage_status": storage_status,
-                    "data": pulled,
-                }, 500)
-
-            # 闭环验证：写完 D1 后立即从“前端同一读取路径”回读。
-            # 这样 success=True 同时意味着 X -> D1 -> /api/tweets 三段链路是一致的。
-            readback = await load_tweets(env, bypass_cache=True)
-            readback_head_ids = [
-                str(item.get("id"))
-                for item in (readback.get("data") or [])[:10]
-                if item.get("id")
-            ]
-            expected_head_ids = [str(item.get("id")) for item in pulled[:10] if item.get("id")]
-            storage_meta["readback_head_ids"] = readback_head_ids
-            storage_meta["readback_total"] = int(readback.get("total", 0) or 0)
-            storage_meta["readback_source"] = readback.get("source", "")
-            storage_meta["head_order_matches"] = (
-                not expected_head_ids
-                or readback_head_ids[:len(expected_head_ids)] == expected_head_ids
-            )
-
-            if not readback.get("success") or not storage_meta["head_order_matches"]:
-                return json_resp({
-                    "success": False,
-                    "error": "READBACK_MISMATCH",
-                    "message": "X 数据已写入，但 D1 -> 前端读取回路与 X 收藏顺序不一致。",
-                    "pulled_count": len(pulled),
-                    "fetch": fetch_meta,
-                    "storage": storage_meta,
-                    "storage_status": storage_status,
-                }, 500)
-
-            return json_resp({
-                "success": True,
-                "message": f"X 拉取 {len(pulled)} 条；{storage_msg}",
-                "pulled_count": len(pulled),
-                "fetch": fetch_meta,
-                "storage": storage_meta,
-                "storage_status": storage_status,
-                "data": pulled,
-            })
+            status_code, payload = await perform_cloud_sync(env, trigger="manual")
+            return json_resp(payload, status_code)
 
         if path == "/api/tweets":
             fresh = query.get("fresh", ["0"])[0] == "1"
@@ -213,3 +136,25 @@ async def on_fetch(request, env):
 
     except Exception as err:
         return json_resp({"success": False, "error": f"Worker Exception: {str(err)}"}, 500)
+
+
+async def on_scheduled(event, env, ctx):
+    """Cloudflare Cron Trigger 入口。
+
+    当前 Worker 仍使用兼容的全局 Python handler 形式，与现有 on_fetch 保持一致。
+    Cron 是 Cloud Profile 的主同步路径；网页按钮只是 force-sync / diagnostics。
+    """
+    cron_expr = getattr(event, "cron", "") or "scheduled"
+    status_code, payload = await perform_cloud_sync(
+        env,
+        trigger=f"cron:{cron_expr}",
+    )
+
+    # 抛错让 Cloudflare Cron Past Events / Observability 正确标记失败，
+    # 而不是把失败吞成一次“成功执行”。
+    if status_code >= 400 or not payload.get("success"):
+        raise RuntimeError(
+            f"Xcollect scheduled sync failed: "
+            f"{payload.get('error', 'UNKNOWN')} - {payload.get('message', '')}"
+        )
+

@@ -17,11 +17,19 @@
   "main": "src/entry.py",
   "compatibility_date": "2024-09-23",
   "compatibility_flags": [
-    "python_workers"
+    "python_workers",
+    "disable_python_no_global_handlers"
   ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
+  },
+  // Personal Cloud 的主同步触发器：每 15 分钟增量拉取一次 X Bookmarks。
+  // Cloudflare Cron 使用 UTC；*/15 与时区无关。可按个人需要降低频率。
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
   },
   "d1_databases": [
     {

@@ -35,6 +35,13 @@ const api = {
     return await resp.json();
   },
 
+  // 获取最近一次自动/手动同步运行状态
+  async getSyncStatus() {
+    const resp = await fetch("/api/sync/status", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  },
+
   // 获取聚合列表；fresh=true 时绕过 HTTP 缓存用于同步后的持久化层 read-back
   async getTweets(fresh = false) {
     const url = fresh ? `/api/tweets?fresh=1&_=${Date.now()}` : "/api/tweets";

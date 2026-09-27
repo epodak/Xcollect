@@ -158,7 +158,7 @@ Current capabilities establish the first complete source adapter:
 
 - X / Twitter bookmark synchronization;
 - first-class Local Profile: Python + `data/xcollect.json`, no cloud dependency;
-- optional Personal Cloud Profile: Cloudflare Worker with D1 primary / KV fallback;
+- optional Personal Cloud Profile: Cloudflare Worker with Cron-driven background sync and D1 primary / KV fallback;
 - pluggable AI classification;
 - category + `sub_category`;
 - topology renormalization;
@@ -210,7 +210,8 @@ Key work:
 - define adapter capability flags such as `read`, `write_back`, `delete`, `incremental_sync`;
 - preserve raw source payload for forward compatibility;
 - add source-aware deduplication and canonical URLs;
-- keep UI filtering source-neutral.
+- keep UI filtering source-neutral;
+- keep background execution / scheduler separate from source adapters: Cron, Queue or Workflow are triggers, not collectors.
 
 ### Phase 2 — GitHub Stars adapter
 

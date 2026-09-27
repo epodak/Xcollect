@@ -75,13 +75,21 @@ Target user:
 Architecture:
 
 ```text
-Internet
-   ↓
-Cloudflare Worker
-   ↓
+Cloudflare Cron
+      ↓
+Python Worker
+      ↓
+sync_service
+      ↓
+X incremental sync
+      ↓
 capability probe
-   ├── D1 available → D1 primary
-   └── KV available → KV fallback
+   ├── D1 bound → D1 primary
+   └── no D1 + KV bound → KV primary
+
+Internet / Browser
+      ↓
+read persisted state
 ```
 
 D1 is the preferred Cloud Profile backend because it supports structured queries, indexing, lifecycle state and future Exploration / Agent features.
@@ -89,6 +97,8 @@ D1 is the preferred Cloud Profile backend because it supports structured queries
 KV is a reduced-capability fallback when configured.
 
 If neither D1 nor KV exists, the user should normally use the Local Profile instead of being forced to provision cloud infrastructure.
+
+Personal Cloud is designed as an autonomous background service: Cron refreshes source state even when nobody opens the page. See `docs/engineering/BACKGROUND_SYNC.md`.
 
 ---
 
@@ -134,12 +144,17 @@ Adding D1 must not imply Twitter/X.
 4. Repository demo/seed assets must never double as the user's mutable runtime database.
 5. Secrets remain outside the repository.
 6. Local persistence must be crash-safe enough that an interrupted write does not destroy the primary JSON file.
-7. Cloud storage selection is capability-driven:
-   - D1 when bound and healthy;
-   - otherwise KV when bound and healthy.
-8. AI is optional. Rule-based classification remains a zero-key fallback.
-9. Documentation must present Local Profile before Cloud Profile.
-10. Future capabilities should raise the ceiling, not the minimum installation floor.
+7. Cloud storage selection is capability-driven and single-authority:
+   - D1 when a DB binding exists;
+   - otherwise KV when a KV binding exists;
+   - never silently dual-write D1 + KV.
+8. Personal Cloud synchronization is background-first:
+   - Cloudflare Cron is the normal freshness mechanism;
+   - page load only reads persisted state;
+   - manual sync is force-sync / diagnostics.
+9. AI is optional. Rule-based classification remains a zero-key fallback.
+10. Documentation must present Local Profile before Cloud Profile.
+11. Future capabilities should raise the ceiling, not the minimum installation floor.
 
 ---
 

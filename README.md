@@ -116,16 +116,22 @@ Local Profile 是一等公民，不是 Cloudflare 失败后的 fallback。
 
 ### Personal Cloud：需要远程访问时再启用
 
-Cloudflare 不是 Xcollect 的运行依赖，而是一个可选的远程访问层：
+Cloudflare 不是 Xcollect 的运行依赖，而是一个可选的远程访问层。**Personal Cloud 默认由后台 Cron 自动同步，不依赖打开网页：**
 
 ```text
-Internet
+Cloudflare Cron（默认每 15 分钟）
+        ↓
+Python Worker on_scheduled
+        ↓
+sync_service
+        ↓
+X incremental fetch
+        ↓
+D1 Primary / KV Fallback
+
+Browser
    ↓
-Cloudflare Worker
-   ↓
-Capability Probe
-   ├── D1 可用 → D1 Primary
-   └── KV 可用 → KV Fallback
+只读取已持久化状态
 ```
 
 当前 D1 路径支持：
@@ -238,11 +244,38 @@ npx wrangler secret put X_AUTH_TOKEN
 npx wrangler secret put X_CT0
 ```
 
-### 5. 部署
+### 5. 确认后台同步 Cron
+
+新的 `wrangler.example.jsonc` 默认包含：
+
+```jsonc
+"triggers": {
+  "crons": ["*/15 * * * *"]
+}
+```
+
+如果你已经有自己的私有 `wrangler.jsonc`，请把这一段补进去。部署前可以检查：
+
+```bash
+pnpm run check:cloud-schedule
+```
+
+### 6. 部署
 
 ```bash
 pnpm run deploy
 ```
+
+部署后，Personal Cloud 会周期性在后台拉取 X 书签。网页上的 **“立即同步”** 只是 force-sync / 排障入口，不再承担日常同步职责。
+
+本地测试 Cron：
+
+```bash
+pnpm run dev:scheduled
+curl "http://localhost:8787/cdn-cgi/local/scheduled?format=json"
+```
+
+详细设计见：[Background Sync Architecture](./docs/engineering/BACKGROUND_SYNC.md)。
 
 > 没有 D1，也不想配置云端数据库？直接使用 Local Profile 即可。Xcollect 的基础功能不要求你为了运行软件而先学习 Cloudflare。
 
@@ -341,6 +374,7 @@ Xcollect/
 │   ├── ROADMAP.md        # Exploration 平台长期路径图
 │   ├── engineering/
 │   │   ├── DEPLOYMENT_PROFILES.md # Local / Personal Cloud 一等公民部署模型
+│   │   ├── BACKGROUND_SYNC.md      # Cloud Cron 后台同步事件模型
 │   │   └── SYNC_AND_D1.md          # X 同步与 D1 持久化工程契约
 │   └── research/
 │       └── EXPLORATION_TOOLS_LANDSCAPE.md  # 市场、竞品与相邻开源方案参照
@@ -369,8 +403,9 @@ Xcollect/
 4. **Seed ≠ User Data**：仓库示例数据不能兼任用户可变数据库。
 5. **Secrets stay private**：本地进 `.env`，Cloudflare 进 Worker Secrets。
 6. **AI optional**：没有 AI Key 也能完成基础收藏、检索和规则分类。
-7. **Closed-loop verification**：同步、持久化、回读必须能独立诊断。
-8. **Source-neutral direction**：新增能力优先判断属于 Core 还是某个 Adapter。
+7. **Background-first Cloud**：Personal Cloud 的新鲜度由后台事件驱动，页面加载绝不能充当 scheduler。
+8. **Closed-loop verification**：同步、持久化、回读必须能独立诊断。
+9. **Source-neutral direction**：新增能力优先判断属于 Core 还是某个 Adapter。
 
 协作约束见：[AGENTS.md](./AGENTS.md)。
 

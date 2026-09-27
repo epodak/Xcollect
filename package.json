@@ -8,7 +8,7 @@
     "sync:config": "python scripts/sync_config.py",
     "predev": "python scripts/sync_config.py && node -e \"const fs = require('fs'); if (fs.existsSync('.env')) fs.copyFileSync('.env', '.dev.vars');\"",
     "dev": "wrangler dev",
-    "predeploy": "python scripts/sync_config.py",
+    "predeploy": "python scripts/sync_config.py && python scripts/check_cloud_schedule.py",
     "deploy": "wrangler deploy",
     "serve:local": "python local_server.py",
     "check": "python local_server.py --check",
@@ -16,7 +16,9 @@
     "d1:init:remote": "wrangler d1 execute x-bookmarks --remote --file=scripts/schema.sql",
     "d1:seed:local": "python scripts/seed_d1.py --local",
     "d1:seed:remote": "python scripts/seed_d1.py --remote",
-    "preinstall": "npx only-allow pnpm"
+    "preinstall": "npx only-allow pnpm",
+    "check:cloud-schedule": "python scripts/check_cloud_schedule.py",
+    "dev:scheduled": "wrangler dev --test-scheduled"
   },
   "devDependencies": {
     "wrangler": "^3.114.0"

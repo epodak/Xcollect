@@ -663,8 +663,23 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({
                 "configured": is_authed,
                 "has_auth_token": bool(creds.get("auth_token")),
-                "has_ct0": bool(creds.get("ct0"))
+                "has_ct0": bool(creds.get("ct0")),
+                "runtime": "Local Python",
+                "storage_profile": "local"
             }).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/sync/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "state": "manual",
+                "storage_profile": "local",
+                "message": "Local Profile 在本机进程运行期间按需同步；Cloud Cron 仅属于 Personal Cloud Profile。"
+            }, ensure_ascii=False).encode("utf-8"))
             return
 
         if parsed.path == "/api/tweets":

@@ -27,3 +27,12 @@
    - `scripts/seed_data.json` is a repository seed/demo asset; mutable user data belongs under ignored runtime storage such as `data/xcollect.json`.
    - Documentation must explain Local Profile before Cloud Profile.
    - See `docs/engineering/DEPLOYMENT_PROFILES.md`.
+
+
+6. **Background execution invariant (Personal Cloud).**
+   - Personal Cloud freshness is event-driven: Cloudflare Cron -> `on_scheduled` -> `sync_service`.
+   - Page load must never trigger source synchronization.
+   - `POST /api/bookmarks/sync` is a force-sync / diagnostic control, not the normal scheduler.
+   - HTTP, Cron and future Queue/Workflow triggers must share one application sync service.
+   - D1 and KV are alternative authoritative backends; never silently dual-write or create split-brain state.
+   - See `docs/engineering/BACKGROUND_SYNC.md`.

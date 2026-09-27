@@ -4,7 +4,7 @@
 
 ## 1. Sync invariant
 
-The synchronous bookmark path is deliberately:
+Each bookmark synchronization run — scheduled or forced manually — is deliberately:
 
 ```text
 X GraphQL
@@ -20,7 +20,7 @@ D1 read-back / status
 Optional AI deep classification
 ```
 
-`/api/bookmarks/sync` MUST NOT call one remote AI request per bookmark.
+`sync_service.perform_cloud_sync()` MUST NOT call one remote AI request per bookmark.
 AI enrichment is a separate lifecycle through `POST /api/bookmarks/classify`.
 
 Repeated X syncs refresh source facts such as text, author, metrics and media,
@@ -122,13 +122,13 @@ The sync response includes:
 `GET /api/storage/status` independently checks whether D1 is bound, whether the
 `tweets` table is queryable, and the current D1 row count.
 
-After a browser-triggered sync, the UI performs a fresh `/api/tweets?fresh=1`
-read and replaces its in-memory data with that persisted state. The `fresh`
-path bypasses the Worker isolate's in-memory tweet cache.
+After any synchronization run, the Worker performs a repository read-back before reporting success.
+The browser independently reads `/api/tweets`; page load is not a source-sync trigger.
+The `fresh` path bypasses the Worker isolate's in-memory tweet cache.
 
-The Worker also performs the same D1 read-back **inside the sync transaction
-response path**. If the X head IDs and the D1/frontend head IDs disagree,
-`/api/bookmarks/sync` returns `READBACK_MISMATCH` instead of a false success.
+The Worker performs read-back **inside the shared sync service**. If the X head IDs and
+the repository head IDs disagree, the run records `READBACK_MISMATCH` instead of a false success.
+For Cron runs, the scheduled handler then raises so Cloudflare Observability records a failed event.
 
 `/api/tweets` is intentionally returned with `Cache-Control: no-store`.
 Private bookmark state must not use public CDN stale-while-revalidate caching.
@@ -160,9 +160,12 @@ Then inspect:
 ```text
 GET  /api/auth/status
 GET  /api/storage/status
-POST /api/bookmarks/sync
+GET  /api/sync/status
 GET  /api/tweets?fresh=1
 ```
+
+Personal Cloud should normally synchronize from the configured Cloudflare Cron.
+`POST /api/bookmarks/sync` remains available as a force-sync / diagnostic control.
 
 Expected invariants:
 
@@ -178,6 +181,11 @@ Expected invariants:
 ### `X_CREDENTIALS_MISSING`
 
 Production Worker Secrets are absent. The browser form cannot fix this.
+
+### `STORAGE_PRECHECK_FAILED`
+
+The selected cloud storage backend could not be read before X synchronization began.
+This is a D1/KV configuration or health problem, not an X protocol problem.
 
 ### `X_SYNC_FAILED`
 
@@ -199,6 +207,7 @@ Before deployment:
 
 ```bash
 pnpm run check
+pnpm run check:cloud-schedule
 ```
 
 The check validates, among other project assets:

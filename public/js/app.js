@@ -80,6 +80,50 @@ async function checkAuthStatus() {
   }
 }
 
+async function refreshSyncStatusNotice() {
+  const notice = document.getElementById("syncStateNotice");
+  if (!notice) return;
+
+  try {
+    const status = await api.getSyncStatus();
+
+    if (status.storage_profile === "local") {
+      notice.innerHTML = "💻 <b>Local Profile</b><br>本地服务按需同步；Personal Cloud 才使用 Cloudflare Cron 自动拉取。";
+      return;
+    }
+
+    if (status.state === "success") {
+      const when = status.last_success_at
+        ? new Date(status.last_success_at).toLocaleString()
+        : "未知时间";
+      const trigger = String(status.trigger || "").startsWith("cron:")
+        ? "后台定时"
+        : "手动";
+      const count = status.new_count != null ? ` · 新增 ${status.new_count}` : "";
+      notice.innerHTML = `✅ <b>${trigger}同步正常</b><br>最近成功：${when}${count}<br><span style="opacity:.8">页面只读取已持久化数据；“立即同步”仅用于强制刷新或排障。</span>`;
+      return;
+    }
+
+    if (status.state === "failed") {
+      const when = status.last_attempt_at
+        ? new Date(status.last_attempt_at).toLocaleString()
+        : "未知时间";
+      notice.innerHTML = `⚠️ <b>后台同步最近失败</b><br>${when} · ${status.error || "UNKNOWN"}<br>${status.message || ""}`;
+      return;
+    }
+
+    if (status.state === "running") {
+      notice.innerHTML = "⏳ 后台同步正在运行。页面继续展示上一版已持久化数据。";
+      return;
+    }
+
+    notice.innerHTML = "ℹ️ 尚无后台同步记录。Cloud Profile 部署后应由 Cron Trigger 周期拉取；本地模式可使用“立即同步”。";
+  } catch (e) {
+    // Local Profile may not expose the cloud scheduler endpoint.
+    notice.innerHTML = "ℹ️ 当前未发现 Cloud Cron 状态。Local Profile 按需运行；Personal Cloud 应配置 Cron Trigger 自动同步。";
+  }
+}
+
 /**
  * 现代 Feed 流初始化：SWR 本地秒开 + 骨架屏 + 后台并发网络更新
  */
@@ -116,12 +160,13 @@ async function initApp() {
   // 3. 异步并发绑定事件与检查凭证
   setupEventListeners();
   const authStatusPromise = checkAuthStatus();
+  const syncStatusPromise = refreshSyncStatusNotice();
 
   // 4. 后台发起真实网络请求（非阻塞），实现推特级 Stale-While-Revalidate
   try {
-    const d1Data = await api.getTweets();
-    if (d1Data && d1Data.success && Array.isArray(d1Data.data)) {
-      const newTweets = d1Data.data;
+    const storageData = await api.getTweets();
+    if (storageData && storageData.success && Array.isArray(storageData.data)) {
+      const newTweets = storageData.data;
       tweets = newTweets;
       window.tweets = tweets;
 
@@ -134,7 +179,7 @@ async function initApp() {
         brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
       }
 
-      // 无论篇数是否变化，只要从边缘 D1 拉取到最新数据均重新渲染
+      // 无论篇数是否变化，只要从当前持久化层拉取到最新数据均重新渲染
       renderCategories();
       applyFiltersAndRender(false);
     }
@@ -148,56 +193,10 @@ async function initApp() {
     }
   }
 
-  // 5. 等凭证状态真正返回后再决定是否静默同步；避免异步竞态误判为未配置
+  // 5. 页面是观察面，不是后台任务触发器。
+  // Cloud Profile 由 Cron Trigger 自动同步；这里只等待状态请求完成。
   await authStatusPromise;
-
-  // 6. 如果已配置 X 凭据，在后台静默发起一次增量同步
-  if (isXConfigured) {
-    setTimeout(async () => {
-      try {
-        const res = await api.syncBookmarks();
-        if (res.success) {
-          // 持久化层 fresh read-back：界面只展示真正已保存的数据，而不是直接相信拉取 payload。
-          const fresh = await api.getTweets(true);
-          if (fresh.success && Array.isArray(fresh.data)) {
-            const existingIds = new Set(tweets.map(t => t.id));
-            tweets = fresh.data;
-            window.tweets = tweets;
-            const newItems = tweets.filter(t => !existingIds.has(t.id));
-            try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch(e){}
-            if (brandSub) {
-              brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
-            }
-            renderCategories();
-            applyFiltersAndRender(false);
-
-            const backend = res.storage_profile
-              || (res.storage && res.storage.backend)
-              || fresh.storage_profile
-              || fresh.source
-              || "storage";
-            const storedNew = res.new_count != null
-              ? res.new_count
-              : (res.storage && Number.isFinite(res.storage.d1_written)
-                ? res.storage.d1_written
-                : newItems.length);
-            const storedTotal = res.count != null
-              ? res.count
-              : (res.storage_status && res.storage_status.d1_row_count != null
-                ? res.storage_status.d1_row_count
-                : tweets.length);
-            if (newItems.length > 0) {
-              showToast(`自动同步：X 拉取 ${res.pulled_count || res.count || 0}，${backend} 新增 ${storedNew}，总计 ${storedTotal}`);
-            }
-          }
-        } else {
-          console.warn("后台静默同步失败:", res.error, res.message);
-        }
-      } catch (e) {
-        console.debug("后台静默同步书签未完成:", e);
-      }
-    }, 2500);
-  }
+  await syncStatusPromise;
 }
 
 function renderCategories() {
@@ -552,7 +551,7 @@ function setupEventListeners() {
         }
       };
 
-      // 一键从 X 平台实时拉取云端最新书签
+      // 手动 force-sync：正常情况下 Cloud Profile 已由 Cron 在后台持续同步
       document.getElementById("btnSyncFromX").onclick = async () => {
         if (!isXConfigured) {
           openAuthModal();
@@ -607,15 +606,17 @@ function setupEventListeners() {
                 ? result.storage_status.d1_row_count
                 : tweets.length);
             showToast(`同步完成：X 拉取 ${result.pulled_count || result.count || 0}，${backend} 新增 ${storedNew}，总计 ${storedTotal}`);
+            await refreshSyncStatusNotice();
           } else {
             showToast(result.message || result.error || "从 X 拉取书签失败", false);
+            await refreshSyncStatusNotice();
           }
         } catch (err) {
           showToast("网络请求异常: " + err, false);
         } finally {
           btn.disabled = false;
           icon.style.animation = "none";
-          text.textContent = "同步 𝕏 最新书签";
+          text.textContent = "立即同步";
         }
       };
 
@@ -858,6 +859,7 @@ window.getTheme = getTheme;
 window.updateThemeToggleUI = updateThemeToggleUI;
 window.toggleTheme = toggleTheme;
 window.checkAuthStatus = checkAuthStatus;
+window.refreshSyncStatusNotice = refreshSyncStatusNotice;
 window.renderCategories = renderCategories;
 window.openDrawer = openDrawer;
 window.closeDrawer = closeDrawer;

@@ -48,9 +48,9 @@
     <!-- 统计与操作 -->
     <div class="header-actions">
       <div class="stat-badge" id="visibleCountBadge">显示 467 / 467 篇</div>
-      <button class="btn-action" id="btnSyncFromX" title="直接通过 GraphQL 实时抓取 X 平台最新的书签">
+      <button class="btn-action" id="btnSyncFromX" title="立即触发一次同步；Personal Cloud 正常情况下由 Cron Trigger 自动同步">
         <span id="syncBtnIcon">🔄</span>
-        <span id="syncBtnText">同步 𝕏 最新书签</span>
+        <span id="syncBtnText">立即同步</span>
       </button>
       <button class="btn-action" id="btnClassify" title="使用 Workers AI 对书签推文进行全自动语义归类并分发至对应专区" style="border-color: rgb(var(--c-brand) / 0.45); color: rgb(var(--c-brand-bright));">
         <span id="classifyBtnIcon">✨</span>
@@ -117,9 +117,9 @@
       </div>
 
       <div class="sidebar-section">
-        <div class="sidebar-heading">真实云端同步状态</div>
+        <div class="sidebar-heading">同步状态</div>
         <div style="font-size: 0.78rem; color: rgb(var(--c-fg-subtle)); line-height: 1.5; padding: 0 0.5rem;" id="syncStateNotice">
-          当前支持直接调用 X (Twitter) 真实接口移除/添加书签。点击推文卡片上的 <b>「⭐ 移出X收藏」</b> 即可将该推文从您的 Twitter 云端书签中直接删除。
+          正在读取最近一次同步状态…
         </div>
       </div>
     </aside>
@@ -349,7 +349,7 @@
 
       <div class="modal-body">
         <p style="font-size: 0.85rem; color: rgb(var(--c-fg-muted)); margin-bottom: 1.2rem;">
-          此凭证仅安全保存在您的本地机器（<code>.x_credentials.json</code>），专用于向 X 官方 GraphQL 发送真实的<b>书签添加与取消请求</b>，绝不上云。
+          Local Profile 会把凭证保存在本机 <code>.env</code>；Personal Cloud 使用 Cloudflare Worker Secrets。凭证用于 X GraphQL 的书签读取以及支持的添加 / 删除操作，请勿提交到公开仓库。
         </p>
 
         <div class="form-group">
@@ -367,7 +367,7 @@
 
       <div class="modal-footer">
         <div style="font-size: 0.75rem; color: rgb(var(--c-fg-subtle));">
-          🔒 纯本地直连 X 平台
+          🔒 Local: .env · Cloud: Worker Secrets
         </div>
         <button class="btn-auth authed" id="btnSaveCredentials">
           <span>保存凭证并启用双向同步</span>

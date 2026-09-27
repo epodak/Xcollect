@@ -10,6 +10,7 @@
 """
 
 import json
+from datetime import datetime, timezone
 from config_loader import CONFIG
 from classifier import rule_classify_tweet, get_existing_categories, ai_classify_tweet
 
@@ -109,18 +110,33 @@ async def _load_bookmark_order(env) -> list[str]:
 
 
 async def get_known_tweet_ids(env) -> set[str]:
-    """一次查询读取 D1 已有 ID，用于 X 增量同步与避免重复 row writes。"""
-    if not hasattr(env, "DB"):
-        return set()
-    try:
-        res = await env.DB.prepare("SELECT id FROM tweets").all()
-        return {
-            str(_row_get(row, "id", ""))
-            for row in res.results
-            if _row_get(row, "id", "")
-        }
-    except Exception:
-        return set()
+    """读取当前主存储已有 ID。
+
+    Storage Plan:
+    - DB binding 存在：D1 是唯一主存储；读取失败应暴露错误，不静默切 KV。
+    - DB binding 不存在：若有 KV，则 KV 是主存储。
+    """
+    if hasattr(env, "DB"):
+        try:
+            res = await env.DB.prepare("SELECT id FROM tweets").all()
+            return {
+                str(_row_get(row, "id", ""))
+                for row in res.results
+                if _row_get(row, "id", "")
+            }
+        except Exception as err:
+            raise RuntimeError(f"D1 已绑定但读取已有 ID 失败: {err}")
+
+    kv = get_kv_binding(env)
+    if kv:
+        try:
+            raw = await kv.get("tweets:all")
+            items = json.loads(raw) if raw else []
+            return {str(item.get("id")) for item in items if item.get("id")}
+        except Exception as err:
+            raise RuntimeError(f"KV 已绑定但读取已有 ID 失败: {err}")
+
+    return set()
 
 
 def _chunk_records(records: list[dict], max_bytes: int = 450_000) -> list[list[dict]]:
@@ -202,7 +218,13 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
             }
             return _MEM_CACHE_TWEETS
         except Exception as d1_err:
-            print("从 D1 读取异常:", str(d1_err))
+            return {
+                "success": False,
+                "source": "Cloudflare D1",
+                "storage_profile": "d1",
+                "message": f"D1 已绑定但读取失败: {str(d1_err)}",
+                "data": [],
+            }
 
     kv = get_kv_binding(env)
     if kv:
@@ -210,9 +232,15 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
             raw_kv = await kv.get("tweets:all")
             if raw_kv:
                 kv_tweets = json.loads(raw_kv)
+                if not isinstance(kv_tweets, list):
+                    kv_tweets = []
+                for idx, item in enumerate(kv_tweets):
+                    if isinstance(item, dict):
+                        item["bookmark_position"] = idx
                 _MEM_CACHE_TWEETS = {
                     "success": True,
                     "source": "Cloudflare KV",
+                    "storage_profile": "kv",
                     "total": len(kv_tweets),
                     "data": kv_tweets,
                 }
@@ -222,7 +250,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
 
     return {
         "success": False,
-        "message": "D1 与 KV 暂无可读取数据，请先执行 X 同步。",
+        "message": "Cloud Profile 未探测到 D1 或 KV 主存储。请绑定云存储，或使用 Local Profile。",
         "data": [],
     }
 
@@ -237,6 +265,7 @@ async def get_storage_status(env) -> dict:
         "d1_row_count": None,
         "d1_error": "",
         "kv_bound": bool(kv),
+        "active_backend": "d1" if hasattr(env, "DB") else ("kv" if kv else "none"),
     }
 
     if hasattr(env, "DB"):
@@ -291,8 +320,15 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
     if not tweets:
         current = await get_storage_status(env)
         details["d1_row_count"] = current.get("d1_row_count")
-        details["backend"] = "d1" if current.get("d1_ready") else ("kv" if details["kv_bound"] else "")
-        return True, "X 云端没有返回待保存数据", details
+        if current.get("active_backend") == "d1" and current.get("d1_ready"):
+            details["backend"] = "d1"
+            return True, "X 云端没有发现新书签；D1 主存储正常", details
+        if current.get("active_backend") == "kv":
+            details["backend"] = "kv"
+            return True, "X 云端没有发现新书签；KV 主存储正常", details
+        if current.get("active_backend") == "d1":
+            return False, f"D1 已绑定但不可用: {current.get('d1_error') or 'unknown error'}", details
+        return False, "Cloud Profile 未绑定 D1 或 KV，无法持久化", details
 
     saved_to_d1 = False
     saved_to_kv = False
@@ -449,18 +485,48 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
             details["d1_error"] = str(db_err)
             print("D1 批量保存写入异常:", details["d1_error"])
 
-    if kv:
+    # Storage Plan 是能力选择，不是双写：只有未绑定 D1 时才使用 KV。
+    if kv and not hasattr(env, "DB"):
         try:
             existing_raw = await kv.get("tweets:all")
             existing_items = json.loads(existing_raw) if existing_raw else []
-            id_map = {str(t.get("id")): t for t in existing_items}
+            if not isinstance(existing_items, list):
+                existing_items = []
+            existing_map = {
+                str(item.get("id")): item
+                for item in existing_items
+                if isinstance(item, dict) and item.get("id")
+            }
+
+            pulled_ids = set()
+            ordered = []
             for item in tweets:
-                item_copy = dict(item)
-                item_copy.setdefault("classify_status", "projected")
-                id_map[str(item_copy.get("id"))] = item_copy
-            merged = list(id_map.values())
-            await kv.put("tweets:all", json.dumps(merged, ensure_ascii=False))
-            details["kv_written"] = len(tweets)
+                tweet_id = str(item.get("id", "") or "")
+                if not tweet_id:
+                    continue
+                pulled_ids.add(tweet_id)
+                old = existing_map.get(tweet_id)
+                merged_item = dict(old or {})
+                merged_item.update(item)
+                if old:
+                    for semantic_key in ("category", "sub_category", "classify_status"):
+                        if old.get(semantic_key):
+                            merged_item[semantic_key] = old[semantic_key]
+                merged_item.setdefault("classify_status", "projected")
+                ordered.append(merged_item)
+
+            ordered.extend(
+                item for item in existing_items
+                if str(item.get("id", "") or "") not in pulled_ids
+            )
+
+            await kv.put("tweets:all", json.dumps(ordered, ensure_ascii=False))
+            details["kv_written"] = len([
+                item for item in tweets
+                if str(item.get("id", "") or "") not in {
+                    str(old.get("id")) for old in existing_items if isinstance(old, dict)
+                }
+            ])
             saved_to_kv = True
         except Exception as kv_err:
             details["kv_error"] = str(kv_err)
@@ -479,14 +545,94 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
 
     if saved_to_kv:
         details["backend"] = "kv"
-        prefix = f"D1 写入失败 ({details['d1_error']})，" if details["d1_error"] else ""
-        return True, prefix + f"已降级写入 KV {details['kv_written']} 条", details
+        return True, f"KV 主存储已写入 {details['kv_written']} 条", details
 
     if details["d1_bound"] and details["d1_error"]:
-        return False, f"D1 批量写入失败: {details['d1_error']}", details
+        return False, f"D1 已被选为主存储，但写入失败: {details['d1_error']}", details
     if not details["d1_bound"] and not details["kv_bound"]:
         return False, "Worker 未绑定 D1(DB) 或 KV，无法持久化", details
     return False, "持久化后端写入未完成", details
+
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def save_sync_status(env, status: dict) -> dict:
+    """将后台同步状态写入当前主存储，供 UI/运维读取。"""
+    payload = dict(status)
+    payload.setdefault("updated_at", _utc_now_iso())
+    raw = json.dumps(payload, ensure_ascii=False)
+
+    if hasattr(env, "DB"):
+        try:
+            await env.DB.prepare(
+                "CREATE TABLE IF NOT EXISTS meta_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)"
+            ).run()
+            await env.DB.prepare(
+                "INSERT INTO meta_kv (key, value, updated_at) VALUES (?, ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+            ).bind("x_sync_status", raw).run()
+            return payload
+        except Exception as err:
+            print("D1 同步状态写入异常:", str(err))
+            return payload
+
+    kv = get_kv_binding(env)
+    if kv:
+        try:
+            await kv.put("meta:sync_status", raw)
+        except Exception as err:
+            print("KV 同步状态写入异常:", str(err))
+    return payload
+
+
+async def get_sync_status(env) -> dict:
+    """读取最近一次后台/手动同步状态。"""
+    if hasattr(env, "DB"):
+        try:
+            res = await env.DB.prepare(
+                "SELECT value FROM meta_kv WHERE key = ?"
+            ).bind("x_sync_status").all()
+            if res.results:
+                raw = _row_get(res.results[0], "value", "") or ""
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    parsed.setdefault("storage_profile", "d1")
+                    return parsed
+        except Exception:
+            pass
+        return {
+            "success": True,
+            "state": "never",
+            "storage_profile": "d1",
+            "message": "尚无同步运行记录",
+        }
+
+    kv = get_kv_binding(env)
+    if kv:
+        try:
+            raw = await kv.get("meta:sync_status")
+            if raw:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    parsed.setdefault("storage_profile", "kv")
+                    return parsed
+        except Exception:
+            pass
+        return {
+            "success": True,
+            "state": "never",
+            "storage_profile": "kv",
+            "message": "尚无同步运行记录",
+        }
+
+    return {
+        "success": False,
+        "state": "unavailable",
+        "storage_profile": "none",
+        "message": "Cloud Profile 未绑定持久化后端",
+    }
 
 
 async def delete_tweet_from_storage(env, tweet_id: str):
