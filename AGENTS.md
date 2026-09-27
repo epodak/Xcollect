@@ -44,3 +44,12 @@
    - If pagination is truncated by `max_sync_pages`, missing IDs must be preserved.
    - Manual force-sync may request full reconciliation; normal cloud Cron remains mostly incremental with periodic full reconciliation.
    - Direct write-back deletion remains immediate: delete on source first, then delete the same item from the selected repository.
+
+
+8. **Canonical content invariant.**
+   - Cards are previews; the detail reader must not simply enlarge the card snippet.
+   - Source adapters normalize the richest available content at ingestion time: X Article -> Note Tweet -> legacy full_text.
+   - `snippet` is for preview/search; `body_raw` is the canonical reader source.
+   - Full reconciliation may refresh source-owned content for existing IDs so parser upgrades can repair historical records without overwriting Xcollect semantic enrichment.
+   - Do not claim full thread reconstruction until the conversation graph has actually been fetched and normalized.
+   - See `docs/engineering/CONTENT_NORMALIZATION.md`.
