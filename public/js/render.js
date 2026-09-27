@@ -293,27 +293,62 @@ function updateModalBookmarkBtn() {
   }
 }
 
-// 打开详情模态框
+// 打开 Canonical Document 阅读器
 window.openDetail = function(tweetId) {
   const tweet = window.tweets && window.tweets.find(t => t.id === tweetId || t.filename === tweetId);
   if (!tweet) return;
   window.currentOpenTweet = tweet;
 
   const rawSub = (tweet.sub_category || "").trim();
-  const displaySub = (rawSub.includes("/") ? rawSub.split("/").pop().trim() : rawSub) || (tweet.category || "").replace(/^\d+_/, "");
+  const displaySub = (rawSub.includes("/") ? rawSub.split("/").pop().trim() : rawSub)
+    || (tweet.category || "").replace(/^\d+_/, "");
+  const title = cleanTitle(tweet.title || "") || "X 原文";
+  const readerBody = prepareReaderBody(tweet);
+  const hasCanonicalBody = Boolean((tweet.body_raw || "").trim());
+  const likelyLegacyTruncation = !hasCanonicalBody
+    || (/https:\/\/t\.co\/[A-Za-z0-9]+\s*$/.test(tweet.body_raw || "") && (tweet.body_raw || "").length < 600);
+
   document.getElementById("modalSubcat").textContent = displaySub;
-  document.getElementById("modalAuthor").textContent = `${tweet.author} (@${tweet.username})`;
-  document.getElementById("modalStats").textContent = `❤️ ${formatNumber(tweet.likes)} 赞 · 🔁 ${formatNumber(tweet.retweets)} 转 · 👀 ${formatNumber(tweet.views)} 阅`;
-  document.getElementById("modalTwitterLink").href = tweet.url || "https://x.com";
+  document.getElementById("modalAuthor").textContent = `${tweet.author || tweet.username || ""} (@${tweet.username || ""})`;
+  document.getElementById("modalTitle").textContent = title;
+  document.getElementById("modalPublished").textContent = [
+    tweet.created_at ? `发布于 ${formatDate(tweet.created_at)}` : "",
+    hasCanonicalBody ? `${String(tweet.body_raw).length.toLocaleString()} 字符` : ""
+  ].filter(Boolean).join(" · ");
+
+  const contentState = document.getElementById("modalContentState");
+  if (contentState) {
+    contentState.textContent = likelyLegacyTruncation
+      ? "正文可能未完整同步"
+      : "完整正文 · Canonical";
+  }
+
+  document.getElementById("modalStats").textContent =
+    `❤️ ${formatNumber(tweet.likes)} 赞 · 🔁 ${formatNumber(tweet.retweets)} 转 · 👀 ${formatNumber(tweet.views)} 阅`;
+
+  const sourceUrl = safeExternalUrl(tweet.url || "https://x.com") || "https://x.com";
+  document.getElementById("modalTwitterLink").href = sourceUrl;
 
   updateModalBookmarkBtn();
   document.getElementById("modalToggleBookmark").onclick = () => window.toggleXBookmark(tweetId);
 
-  // 渲染 Markdown（剥离与徽章重复的【分类】前缀和「领域分类」引用行）
   const bodyContainer = document.getElementById("modalBody");
-  const modalMd = tweet.body_raw ? cleanBodyRaw(tweet.body_raw) : cleanSnippet(tweet.snippet);
-  bodyContainer.innerHTML = parseMarkdownToHtml(modalMd, tweet.images, tweet.videos);
+  let bodyHtml = "";
+  if (likelyLegacyTruncation) {
+    bodyHtml += `
+      <div class="reader-incomplete">
+        当前记录可能仍是旧版 legacy 预览，而不是完整 Note Tweet / X Article。
+        点击“立即同步”会触发完整 reconciliation，并重新写入 canonical 正文；也可以直接在 X 查看原文。
+      </div>
+    `;
+  }
 
+  bodyHtml += parseMarkdownToHtml(
+    readerBody || cleanSnippet(tweet.snippet) || "",
+    tweet.images,
+    tweet.videos
+  );
+  bodyContainer.innerHTML = bodyHtml;
   document.getElementById("detailModal").classList.add("active");
 };
 
