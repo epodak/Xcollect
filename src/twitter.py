@@ -486,15 +486,22 @@ async def fetch_remote_bookmarks(
                 avatar_url = extract_avatar(user_res)
                 name = user_core.get("name", "")
                 s_name = user_core.get("screen_name", "")
-                text = legacy.get("full_text", "") or ""
                 created_at = legacy.get("created_at", "")
                 likes = int(legacy.get("favorite_count", 0) or 0)
                 retweets = int(legacy.get("retweet_count", 0) or 0)
                 views = int((t_res.get("views", {}) or {}).get("count", 0) or 0)
+
+                title_hint, text, article_images = _extract_canonical_content(t_res, legacy)
+                text = _append_quoted_tweet(text, t_res)
+
                 images, videos = _extract_media(legacy)
+                for image_url in article_images:
+                    if image_url not in images:
+                        images.append(image_url)
+
                 snippet = text.replace("\n", " ").strip()[:140]
-                first_line = text.splitlines()[0] if text else "推文"
-                title = first_line[:45] + ("..." if len(first_line) > 45 else "")
+                first_line = title_hint or (text.splitlines()[0] if text else "推文")
+                title = first_line[:72] + ("..." if len(first_line) > 72 else "")
                 cat, subcat = rule_classify_tweet(text, title)
 
                 pulled.append({
