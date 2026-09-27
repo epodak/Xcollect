@@ -204,11 +204,19 @@ async def call_x_bookmark_api(tweet_id: str, action: str, auth_token: str, ct0: 
     return True, f"成功从 X 云端同步: {endpoint}"
 
 
-async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, existing_cats: list[str], env):
+async def fetch_remote_bookmarks(
+    auth_token: str,
+    ct0: str,
+    max_pages: int,
+    existing_cats: list[str],
+    env,
+    known_ids: set[str] | None = None,
+):
     """游标连续翻页拉取书签；同步阶段不执行逐条远程 AI 调用。"""
     if js_fetch is None:
         raise RuntimeError("当前 Worker 运行环境不支持 js_fetch")
 
+    known_ids = known_ids or set()
     query_ids = await resolve_bookmark_query_ids()
     if not query_ids:
         raise RuntimeError("没有可用的 Bookmarks GraphQL queryId")
@@ -219,6 +227,7 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
     selected_query_id = None
     pages_fetched = 0
     query_failures = []
+    discovered_new_count = 0
 
     for _page in range(max_pages):
         timeline = None
@@ -288,6 +297,7 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
 
         pages_fetched += 1
         page_new_count = 0
+        page_unknown_count = 0
         next_cursor = None
 
         for ins in timeline.get("instructions", []) or []:
@@ -310,6 +320,9 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
 
                 seen_ids.add(rest_id)
                 page_new_count += 1
+                if rest_id not in known_ids:
+                    page_unknown_count += 1
+                    discovered_new_count += 1
                 legacy = t_res.get("legacy", {}) or {}
                 user_res = _unwrap_user_result((t_res.get("core", {}) or {}).get("user_results", {}).get("result", {}) or {})
                 user_core = user_res.get("core", {}) or {}
@@ -352,6 +365,10 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
                     "classify_status": "projected",
                 })
 
+        # 增量停止条件：已有 D1 数据时，如果这一整页都已存在，
+        # 后面的更老页面不会包含“新收藏”，无需继续消耗 X / D1 配额。
+        if known_ids and page_unknown_count == 0:
+            break
         if not next_cursor or next_cursor == cursor or page_new_count == 0:
             break
         cursor = next_cursor
@@ -368,6 +385,9 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
         "query_id_candidates": query_ids,
         "pages_fetched": pages_fetched,
         "pulled_count": len(pulled),
+        "known_before_count": len(known_ids),
+        "discovered_new_count": discovered_new_count,
+        "incremental_stop": bool(known_ids),
         "classification": "rule_projection",
         "query_failures": query_failures[-4:],
     }

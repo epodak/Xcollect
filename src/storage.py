@@ -108,6 +108,21 @@ async def _load_bookmark_order(env) -> list[str]:
         return []
 
 
+async def get_known_tweet_ids(env) -> set[str]:
+    """一次查询读取 D1 已有 ID，用于 X 增量同步与避免重复 row writes。"""
+    if not hasattr(env, "DB"):
+        return set()
+    try:
+        res = await env.DB.prepare("SELECT id FROM tweets").all()
+        return {
+            str(_row_get(row, "id", ""))
+            for row in res.results
+            if _row_get(row, "id", "")
+        }
+    except Exception:
+        return set()
+
+
 def _chunk_records(records: list[dict], max_bytes: int = 450_000) -> list[list[dict]]:
     """按 JSON UTF-8 大小分块，避免单个 D1 绑定 payload 过大。"""
     chunks = []
@@ -261,6 +276,9 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
         "d1_row_count": None,
         "d1_error": "",
         "d1_queries": 0,
+        "d1_existing_before": 0,
+        "d1_skipped_existing": 0,
+        "order_changed": False,
         "kv_bound": bool(kv),
         "kv_written": 0,
         "kv_error": "",
@@ -340,8 +358,18 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
         """
 
         try:
+            existing_ids = await get_known_tweet_ids(env)
+            details["d1_queries"] += 1
+            details["d1_existing_before"] = len(existing_ids)
+
+            new_items = [
+                item for item in tweets
+                if str(item.get("id", "")) not in existing_ids
+            ]
+            details["d1_skipped_existing"] = len(tweets) - len(new_items)
+
             normalized = []
-            for item in tweets:
+            for item in new_items:
                 images = item.get("images") or []
                 videos = item.get("videos") or []
                 normalized.append({
@@ -386,14 +414,16 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
             pulled_set = set(pulled_ids)
             merged_order = pulled_ids + [tweet_id for tweet_id in old_order if tweet_id not in pulled_set]
 
-            await env.DB.prepare(
-                "INSERT INTO meta_kv (key, value, updated_at) VALUES (?, ?, datetime('now')) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
-            ).bind(
-                "x_bookmark_order",
-                json.dumps(merged_order, ensure_ascii=False),
-            ).run()
-            details["d1_queries"] += 1
+            if merged_order != old_order:
+                await env.DB.prepare(
+                    "INSERT INTO meta_kv (key, value, updated_at) VALUES (?, ?, datetime('now')) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+                ).bind(
+                    "x_bookmark_order",
+                    json.dumps(merged_order, ensure_ascii=False),
+                ).run()
+                details["d1_queries"] += 1
+                details["order_changed"] = True
 
             count_res = await env.DB.prepare("SELECT COUNT(*) AS total FROM tweets").all()
             details["d1_queries"] += 1
@@ -411,7 +441,7 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
                 details["missing_head_ids"] = [tweet_id for tweet_id in head_ids if tweet_id not in persisted]
 
             saved_to_d1 = (
-                details["d1_written"] == len(tweets)
+                details["d1_written"] == len(new_items)
                 and details["d1_row_count"] is not None
                 and not details["missing_head_ids"]
             )
@@ -443,7 +473,7 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
         details["backend"] = "d1"
         return (
             True,
-            f"D1 批量写入并核验 {details['d1_written']} 条，当前表内共 {details['d1_row_count']} 条",
+            f"D1 新增写入 {details['d1_written']} 条，跳过已有 {details['d1_skipped_existing']} 条，当前表内共 {details['d1_row_count']} 条",
             details,
         )
 

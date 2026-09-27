@@ -13,6 +13,7 @@ from storage import (
     save_tweets,
     delete_tweet_from_storage,
     get_storage_status,
+    get_known_tweet_ids,
     get_topology_status,
     renormalize_topology,
     batch_classify_pending,
@@ -109,12 +110,14 @@ async def on_fetch(request, env):
 
             try:
                 existing_cats = await get_existing_categories(env)
+                known_ids = await get_known_tweet_ids(env)
                 pulled, fetch_meta = await fetch_remote_bookmarks(
                     auth_token,
                     ct0,
                     CONFIG.max_sync_pages,
                     existing_cats,
                     env,
+                    known_ids=known_ids,
                 )
             except Exception as sync_err:
                 return json_resp({
