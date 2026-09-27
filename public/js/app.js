@@ -8,12 +8,12 @@ var tweets = [];
 var currentFilteredList = [];
 var renderedCount = 0;
 const BATCH_SIZE = 18; // 首屏与每次触底流式渲染 18 张卡片 (6 行)，轻量秒开无长任务
-const CACHE_KEY = "twitter_curated_tweets_cache_v3";
+const CACHE_KEY = "twitter_curated_tweets_cache_v4";
 
 var searchQuery = "";
 var activeCategory = "ALL";
 var activeSubCategory = "ALL";
-var sortMode = "likes_desc";
+var sortMode = "bookmark_desc";
 var filterBookmarked = false;
 var filterHasMedia = false;
 var filterHighLikes = false;
@@ -693,6 +693,8 @@ function applyFiltersAndRender(resetScroll = true) {
 
   // 排序
   currentFilteredList.sort((a, b) => {
+    // bookmark_position 来自 X Bookmarks timeline；0 表示最近收藏。
+    if (sortMode === "bookmark_desc") return (a.bookmark_position ?? Number.MAX_SAFE_INTEGER) - (b.bookmark_position ?? Number.MAX_SAFE_INTEGER);
     if (sortMode === "likes_desc") return (b.likes || 0) - (a.likes || 0);
     if (sortMode === "views_desc") return (b.views || 0) - (a.views || 0);
     if (sortMode === "retweets_desc") return (b.retweets || 0) - (a.retweets || 0);

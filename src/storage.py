@@ -60,64 +60,135 @@ def get_kv_binding(env):
     return None
 
 
+def _row_get(row, key: str, default=None):
+    """兼容 Python dict、JsProxy/Record 与属性访问形式的 D1 行对象。"""
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        value = getattr(row, key)
+        return default if value is None else value
+    except Exception:
+        pass
+    try:
+        value = row[key]
+        return default if value is None else value
+    except Exception:
+        return default
+
+
+def _json_list(value):
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
+
+
+async def _load_bookmark_order(env) -> list[str]:
+    """读取 X 收藏流顺序；第 0 个 ID 表示当前最新收藏。"""
+    if not hasattr(env, "DB"):
+        return []
+    try:
+        stmt = env.DB.prepare("SELECT value FROM meta_kv WHERE key = ?").bind("x_bookmark_order")
+        res = await stmt.all()
+        if not res.results:
+            return []
+        raw = _row_get(res.results[0], "value", "") or ""
+        parsed = json.loads(raw)
+        return [str(x) for x in parsed if x]
+    except Exception:
+        return []
+
+
+def _chunk_records(records: list[dict], max_bytes: int = 450_000) -> list[list[dict]]:
+    """按 JSON UTF-8 大小分块，避免单个 D1 绑定 payload 过大。"""
+    chunks = []
+    current = []
+    current_bytes = 2
+    for item in records:
+        item_bytes = len(json.dumps(item, ensure_ascii=False).encode("utf-8")) + 1
+        if current and current_bytes + item_bytes > max_bytes:
+            chunks.append(current)
+            current = []
+            current_bytes = 2
+        current.append(item)
+        current_bytes += item_bytes
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 async def load_tweets(env, bypass_cache: bool = False) -> dict:
-    """加载推文数据（级联读取：边缘内存 -> D1 数据库 -> KV 存储）。"""
+    """加载推文数据：D1 为权威，bookmark_position 表示 X 当前收藏流顺序。"""
     global _MEM_CACHE_TWEETS
     if _MEM_CACHE_TWEETS is not None and not bypass_cache:
         return _MEM_CACHE_TWEETS
 
-    # 1. 优先读取 Cloudflare D1 数据库
     if hasattr(env, "DB"):
         try:
-            stmt = env.DB.prepare("SELECT * FROM tweets ORDER BY likes DESC")
+            # 不在 SQL 层按 likes 排序。收藏流顺序来自 X timeline，而不是互动量。
+            stmt = env.DB.prepare("SELECT * FROM tweets")
             db_res = await stmt.all()
             rows = db_res.results
+            order = await _load_bookmark_order(env)
+            order_map = {tweet_id: idx for idx, tweet_id in enumerate(order)}
+            unordered_base = len(order) + 1_000_000
+
             tweets_list = []
-            for r in rows:
-                body_val = getattr(r, "body_raw", "") or getattr(r, "snippet", "")
-                title_val = getattr(r, "title", "")
+            for row_index, r in enumerate(rows):
+                body_val = _row_get(r, "body_raw", "") or _row_get(r, "snippet", "")
+                title_val = _row_get(r, "title", "")
                 default_sub = rule_classify_tweet(body_val, title_val)[1]
+                tweet_id = str(_row_get(r, "id", ""))
 
                 row_dict = {
-                    "id": str(getattr(r, "id", "")),
-                    "filename": getattr(r, "filename", ""),
-                    "category": getattr(r, "category", "") or "未分类",
-                    "sub_category": getattr(r, "sub_category", "") or default_sub,
+                    "id": tweet_id,
+                    "filename": _row_get(r, "filename", ""),
+                    "category": _row_get(r, "category", "") or "未分类",
+                    "sub_category": _row_get(r, "sub_category", "") or default_sub,
                     "title": title_val,
-                    "author": getattr(r, "author", ""),
-                    "username": getattr(r, "username", ""),
-                    "avatar": getattr(r, "avatar", "") or "",
-                    "url": getattr(r, "url", ""),
-                    "created_at": getattr(r, "created_at", ""),
-                    "likes": int(getattr(r, "likes", 0) or 0),
-                    "retweets": int(getattr(r, "retweets", 0) or 0),
-                    "views": int(getattr(r, "views", 0) or 0),
-                    "has_media": bool(getattr(r, "has_media", 0)),
-                    "media_type": getattr(r, "media_type", ""),
-                    "images": json.loads(getattr(r, "images", "[]") or "[]")
-                    if isinstance(getattr(r, "images", None), str)
-                    else [],
-                    "videos": json.loads(getattr(r, "videos", "[]") or "[]")
-                    if isinstance(getattr(r, "videos", None), str)
-                    else [],
-                    "snippet": getattr(r, "snippet", ""),
-                    "body_raw": getattr(r, "body_raw", ""),
-                    "body_html": getattr(r, "body_html", ""),
-                    "classify_status": getattr(r, "classify_status", "settled") or "settled",
+                    "author": _row_get(r, "author", ""),
+                    "username": _row_get(r, "username", ""),
+                    "avatar": _row_get(r, "avatar", "") or "",
+                    "url": _row_get(r, "url", ""),
+                    "created_at": _row_get(r, "created_at", ""),
+                    "likes": int(_row_get(r, "likes", 0) or 0),
+                    "retweets": int(_row_get(r, "retweets", 0) or 0),
+                    "views": int(_row_get(r, "views", 0) or 0),
+                    "has_media": bool(_row_get(r, "has_media", 0)),
+                    "media_type": _row_get(r, "media_type", ""),
+                    "images": _json_list(_row_get(r, "images", "[]")),
+                    "videos": _json_list(_row_get(r, "videos", "[]")),
+                    "snippet": _row_get(r, "snippet", ""),
+                    "body_raw": _row_get(r, "body_raw", ""),
+                    "body_html": _row_get(r, "body_html", ""),
+                    "classify_status": _row_get(r, "classify_status", "settled") or "settled",
+                    # 越小越新；没有历史收藏顺序的老数据排在后面。
+                    "bookmark_position": order_map.get(tweet_id, unordered_base + row_index),
                 }
                 tweets_list.append(row_dict)
 
+            tweets_list.sort(key=lambda item: int(item.get("bookmark_position", unordered_base)))
+
             _MEM_CACHE_TWEETS = {
                 "success": True,
-                "source": "Cloudflare D1 (Edge Cached)",
+                "source": "Cloudflare D1",
                 "total": len(tweets_list),
+                "bookmark_order_count": len(order),
                 "data": tweets_list,
             }
             return _MEM_CACHE_TWEETS
         except Exception as d1_err:
             print("从 D1 读取异常:", str(d1_err))
 
-    # 2. 降级读取 Cloudflare KV 存储
     kv = get_kv_binding(env)
     if kv:
         try:
@@ -136,7 +207,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
 
     return {
         "success": False,
-        "message": "数据库与KV暂无推文数据，请点击右上角【从 X 同步】开始拉取！",
+        "message": "D1 与 KV 暂无可读取数据，请先执行 X 同步。",
         "data": [],
     }
 
@@ -167,6 +238,9 @@ async def get_storage_status(env) -> dict:
                     total = int(getattr(row, "total", 0) or 0)
             status["d1_ready"] = True
             status["d1_row_count"] = total
+            order = await _load_bookmark_order(env)
+            status["bookmark_order_count"] = len(order)
+            status["bookmark_head_ids"] = order[:10]
         except Exception as err:
             status["d1_error"] = str(err)
 
@@ -174,7 +248,11 @@ async def get_storage_status(env) -> dict:
 
 
 async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
-    """批量持久化推文，并返回可审计的 D1/KV 写入统计。"""
+    """批量持久化推文。
+
+    Cloudflare Workers Free 每次 invocation 的 D1 查询数有限，因此严禁“一条推文一条 INSERT”。
+    这里使用 json_each(?) 将一批记录在单条 SQL 中展开并 UPSERT。
+    """
     kv = get_kv_binding(env)
     details = {
         "attempted": len(tweets),
@@ -182,10 +260,14 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
         "d1_written": 0,
         "d1_row_count": None,
         "d1_error": "",
+        "d1_queries": 0,
         "kv_bound": bool(kv),
         "kv_written": 0,
         "kv_error": "",
         "backend": "",
+        "pulled_head_ids": [str(t.get("id")) for t in tweets[:10]],
+        "verified_head_ids": [],
+        "missing_head_ids": [],
     }
 
     if not tweets:
@@ -198,11 +280,36 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
     saved_to_kv = False
 
     if hasattr(env, "DB"):
-        sql_full = """
+        bulk_sql = """
         INSERT INTO tweets (
             id, filename, category, sub_category, title, author, username, url, created_at,
-            likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar, classify_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            likes, retweets, views, has_media, media_type, images, videos, snippet,
+            body_raw, body_html, avatar, classify_status
+        )
+        SELECT
+            CAST(json_extract(value, '$.id') AS TEXT),
+            json_extract(value, '$.filename'),
+            json_extract(value, '$.category'),
+            json_extract(value, '$.sub_category'),
+            json_extract(value, '$.title'),
+            json_extract(value, '$.author'),
+            json_extract(value, '$.username'),
+            json_extract(value, '$.url'),
+            json_extract(value, '$.created_at'),
+            COALESCE(json_extract(value, '$.likes'), 0),
+            COALESCE(json_extract(value, '$.retweets'), 0),
+            COALESCE(json_extract(value, '$.views'), 0),
+            COALESCE(json_extract(value, '$.has_media'), 0),
+            json_extract(value, '$.media_type'),
+            json_extract(value, '$.images'),
+            json_extract(value, '$.videos'),
+            json_extract(value, '$.snippet'),
+            json_extract(value, '$.body_raw'),
+            json_extract(value, '$.body_html'),
+            json_extract(value, '$.avatar'),
+            json_extract(value, '$.classify_status')
+        FROM json_each(?)
+        WHERE 1
         ON CONFLICT(id) DO UPDATE SET
             filename = excluded.filename,
             title = excluded.title,
@@ -231,85 +338,82 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
                 THEN excluded.sub_category ELSE tweets.sub_category END,
             classify_status = COALESCE(tweets.classify_status, excluded.classify_status)
         """
-        sql_no_status = """
-        INSERT OR REPLACE INTO tweets (
-            id, filename, category, sub_category, title, author, username, url, created_at,
-            likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html, avatar
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        sql_legacy = """
-        INSERT OR REPLACE INTO tweets (
-            id, filename, category, sub_category, title, author, username, url, created_at,
-            likes, retweets, views, has_media, media_type, images, videos, snippet, body_raw, body_html
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
 
         try:
+            normalized = []
             for item in tweets:
                 images = item.get("images") or []
                 videos = item.get("videos") or []
-                has_media = int(bool(item.get("has_media") or images or videos))
-                media_type = item.get("media_type", "") or (
-                    "video" if videos else ("image" if images else "")
-                )
-                base_args = [
-                    str(item["id"]),
-                    item.get("filename") or f"twitter_{item.get('username', '')}_status_{item['id']}.md",
-                    item.get("category", "未分类"),
-                    item.get("sub_category", "精选研读"),
-                    item.get("title", ""),
-                    item.get("author", ""),
-                    item.get("username", ""),
-                    item.get("url", ""),
-                    item.get("created_at", ""),
-                    int(item.get("likes") or 0),
-                    int(item.get("retweets") or 0),
-                    int(item.get("views") or 0),
-                    has_media,
-                    media_type,
-                    json.dumps(images, ensure_ascii=False),
-                    json.dumps(videos, ensure_ascii=False),
-                    item.get("snippet", ""),
-                    item.get("body_raw", ""),
-                    item.get("body_html", ""),
-                ]
-                avatar_val = item.get("avatar", "") or ""
-                status_val = item.get("classify_status", "projected") or "projected"
+                normalized.append({
+                    "id": str(item["id"]),
+                    "filename": item.get("filename") or f"twitter_{item.get('username', '')}_status_{item['id']}.md",
+                    "category": item.get("category", "未分类"),
+                    "sub_category": item.get("sub_category", "精选研读"),
+                    "title": item.get("title", ""),
+                    "author": item.get("author", ""),
+                    "username": item.get("username", ""),
+                    "url": item.get("url", ""),
+                    "created_at": item.get("created_at", ""),
+                    "likes": int(item.get("likes") or 0),
+                    "retweets": int(item.get("retweets") or 0),
+                    "views": int(item.get("views") or 0),
+                    "has_media": int(bool(item.get("has_media") or images or videos)),
+                    "media_type": item.get("media_type", "") or ("video" if videos else ("image" if images else "")),
+                    "images": json.dumps(images, ensure_ascii=False),
+                    "videos": json.dumps(videos, ensure_ascii=False),
+                    "snippet": item.get("snippet", ""),
+                    "body_raw": item.get("body_raw", ""),
+                    "body_html": item.get("body_html", ""),
+                    "avatar": item.get("avatar", "") or "",
+                    "classify_status": item.get("classify_status", "projected") or "projected",
+                })
 
-                try:
-                    stmt = env.DB.prepare(sql_full).bind(*(base_args + [avatar_val, status_val]))
-                    await stmt.run()
-                except Exception as col_err:
-                    err_str = str(col_err).lower()
-                    if "classify_status" in err_str:
-                        try:
-                            stmt = env.DB.prepare(sql_no_status).bind(*(base_args + [avatar_val]))
-                            await stmt.run()
-                        except Exception:
-                            stmt = env.DB.prepare(sql_legacy).bind(*base_args)
-                            await stmt.run()
-                    elif "avatar" in err_str:
-                        stmt = env.DB.prepare(sql_legacy).bind(*base_args)
-                        await stmt.run()
-                    else:
-                        raise
+            for chunk in _chunk_records(normalized):
+                payload = json.dumps(chunk, ensure_ascii=False)
+                await env.DB.prepare(bulk_sql).bind(payload).run()
+                details["d1_queries"] += 1
+                details["d1_written"] += len(chunk)
 
-                details["d1_written"] += 1
+            # 确保历史部署也具备元数据表，然后保存“收藏流”顺序。
+            await env.DB.prepare(
+                "CREATE TABLE IF NOT EXISTS meta_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)"
+            ).run()
+            details["d1_queries"] += 1
 
-            count_stmt = env.DB.prepare("SELECT COUNT(*) AS total FROM tweets")
-            count_res = await count_stmt.all()
-            count_rows = count_res.results
-            if count_rows:
-                row = count_rows[0]
-                if isinstance(row, dict):
-                    details["d1_row_count"] = int(row.get("total", 0) or 0)
-                else:
-                    details["d1_row_count"] = int(getattr(row, "total", 0) or 0)
+            # 新一轮拉取的 ID 放最前，历史未出现在本轮窗口中的 ID 顺序保持不变。
+            pulled_ids = [str(item.get("id")) for item in tweets if item.get("id")]
+            old_order = await _load_bookmark_order(env)
+            pulled_set = set(pulled_ids)
+            merged_order = pulled_ids + [tweet_id for tweet_id in old_order if tweet_id not in pulled_set]
 
-            # “D1 已确认”要求写入条数完整且 COUNT(*) read-back 成功。
+            await env.DB.prepare(
+                "INSERT INTO meta_kv (key, value, updated_at) VALUES (?, ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+            ).bind(
+                "x_bookmark_order",
+                json.dumps(merged_order, ensure_ascii=False),
+            ).run()
+            details["d1_queries"] += 1
+
+            count_res = await env.DB.prepare("SELECT COUNT(*) AS total FROM tweets").all()
+            details["d1_queries"] += 1
+            if count_res.results:
+                details["d1_row_count"] = int(_row_get(count_res.results[0], "total", 0) or 0)
+
+            head_ids = pulled_ids[:10]
+            if head_ids:
+                verify_res = await env.DB.prepare(
+                    "SELECT id FROM tweets WHERE id IN (SELECT value FROM json_each(?))"
+                ).bind(json.dumps(head_ids)).all()
+                details["d1_queries"] += 1
+                persisted = {str(_row_get(row, "id", "")) for row in verify_res.results}
+                details["verified_head_ids"] = [tweet_id for tweet_id in head_ids if tweet_id in persisted]
+                details["missing_head_ids"] = [tweet_id for tweet_id in head_ids if tweet_id not in persisted]
+
             saved_to_d1 = (
                 details["d1_written"] == len(tweets)
                 and details["d1_row_count"] is not None
+                and not details["missing_head_ids"]
             )
         except Exception as db_err:
             details["d1_error"] = str(db_err)
@@ -339,19 +443,17 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
         details["backend"] = "d1"
         return (
             True,
-            f"D1 已确认写入 {details['d1_written']} 条，当前表内共 {details['d1_row_count']} 条",
+            f"D1 批量写入并核验 {details['d1_written']} 条，当前表内共 {details['d1_row_count']} 条",
             details,
         )
 
     if saved_to_kv:
         details["backend"] = "kv"
-        prefix = ""
-        if details["d1_bound"] and details["d1_error"]:
-            prefix = f"D1 写入失败 ({details['d1_error']})，"
+        prefix = f"D1 写入失败 ({details['d1_error']})，" if details["d1_error"] else ""
         return True, prefix + f"已降级写入 KV {details['kv_written']} 条", details
 
     if details["d1_bound"] and details["d1_error"]:
-        return False, f"D1 写入失败: {details['d1_error']}", details
+        return False, f"D1 批量写入失败: {details['d1_error']}", details
     if not details["d1_bound"] and not details["kv_bound"]:
         return False, "Worker 未绑定 D1(DB) 或 KV，无法持久化", details
     return False, "持久化后端写入未完成", details
@@ -396,12 +498,12 @@ async def get_topology_status(env) -> dict:
             res = await stmt.all()
             for r in res.results:
                 total += 1
-                st = getattr(r, "classify_status", "settled") or "settled"
+                st = _row_get(r, "classify_status", "settled") or "settled"
                 if st == "projected":
                     projected += 1
                 else:
                     settled += 1
-                c = getattr(r, "category", "未分类")
+                c = _row_get(r, "category", "未分类")
                 cat_counts[c] = cat_counts.get(c, 0) + 1
         except Exception as e:
             print("获取 D1 拓扑状态异常:", str(e))
@@ -489,9 +591,9 @@ async def batch_classify_pending(env, limit: int = 60) -> tuple[bool, str, list[
 
         classified_items = []
         for r in rows:
-            t_id = str(getattr(r, "id", ""))
-            t_title = getattr(r, "title", "") or ""
-            t_body = getattr(r, "body_raw", "") or getattr(r, "snippet", "") or ""
+            t_id = str(_row_get(r, "id", ""))
+            t_title = _row_get(r, "title", "") or ""
+            t_body = _row_get(r, "body_raw", "") or _row_get(r, "snippet", "") or ""
 
             cat, subcat = await ai_classify_tweet(t_body, t_title, existing_cats, env)
             if cat not in existing_cats:

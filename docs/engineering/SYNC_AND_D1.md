@@ -58,7 +58,47 @@ Resolution order for `Bookmarks`:
 
 A single hard-coded queryId is not a stable integration contract.
 
-## 4. Persistence truth
+## 4. D1 query-budget invariant
+
+Xcollect targets Cloudflare Workers Free as a supported deployment mode.
+
+Do **not** write one bookmark with one D1 query. A sync may contain hundreds of
+bookmarks, while a Free Worker invocation has a bounded subrequest/query budget.
+
+The persistence path therefore uses a JSON bulk UPSERT:
+
+```text
+Python list[bookmark]
+        ↓ JSON
+one/few bound payloads
+        ↓
+json_each(?)
+        ↓
+INSERT ... SELECT ... ON CONFLICT DO UPDATE
+```
+
+This keeps D1 round trips approximately O(payload chunks), not O(bookmarks).
+
+The current sync response exposes `storage.d1_queries` so this invariant remains observable.
+
+## 5. Bookmark-order invariant
+
+Tweet `created_at` is **not** bookmark time. A user can bookmark a five-year-old
+post today.
+
+X's timeline entries contain `sortIndex`, which defines timeline ordering. The
+adapter preserves that ordering, and D1 stores the current bookmark ID order in
+`meta_kv.x_bookmark_order`.
+
+`GET /api/tweets` adds:
+
+- `bookmark_position = 0` for the newest bookmark;
+- increasing positions for older bookmarks.
+
+The frontend defaults to `bookmark_desc` ("最近收藏") rather than engagement
+sorting.
+
+## 6. Persistence truth
 
 A successful sync means both:
 
@@ -84,9 +124,16 @@ The sync response includes:
 
 After a browser-triggered sync, the UI performs a fresh `/api/tweets?fresh=1`
 read and replaces its in-memory data with that persisted state. The `fresh`
-path bypasses both HTTP caching and the Worker isolate's in-memory tweet cache.
+path bypasses the Worker isolate's in-memory tweet cache.
 
-## 5. D1 upsert invariant
+The Worker also performs the same D1 read-back **inside the sync transaction
+response path**. If the X head IDs and the D1/frontend head IDs disagree,
+`/api/bookmarks/sync` returns `READBACK_MISMATCH` instead of a false success.
+
+`/api/tweets` is intentionally returned with `Cache-Control: no-store`.
+Private bookmark state must not use public CDN stale-while-revalidate caching.
+
+## 7. D1 upsert invariant
 
 Full X sync is idempotent.
 
@@ -99,7 +146,7 @@ On an existing tweet ID:
 This prevents every full sync from degrading previously AI-classified items back
 to `projected`.
 
-## 6. First-deploy / recovery checklist
+## 8. First-deploy / recovery checklist
 
 ```bash
 pnpm run d1:init:remote
@@ -126,7 +173,7 @@ Expected invariants:
 - `d1_row_count` is non-null and agrees with persisted data
 - repeated sync does not erase settled classifications
 
-## 7. Failure codes
+## 9. Failure codes
 
 ### `X_CREDENTIALS_MISSING`
 
@@ -146,7 +193,7 @@ X retrieval completed but D1/KV persistence did not. Inspect
 A missing-table/schema error generally means the remote D1 schema has not yet
 been initialized with `pnpm run d1:init:remote`.
 
-## 8. Smoke gate
+## 10. Smoke gate
 
 Before deployment:
 

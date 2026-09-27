@@ -342,6 +342,9 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
                     "body_raw": text,
                     "url": f"https://x.com/{s_name}/status/{rest_id}",
                     "created_at": created_at,
+                    # X timeline 的 sortIndex 表达“在收藏流里的位置”，而不是推文发布时间。
+                    # 新收藏旧推文时，created_at 无法代表收藏顺序，因此必须把这个信号保留下来。
+                    "bookmark_sort_index": str(entry.get("sortIndex", "") or ""),
                     "has_media": bool(images or videos),
                     "media_type": "video" if videos else ("image" if images else ""),
                     "images": images,
@@ -352,6 +355,13 @@ async def fetch_remote_bookmarks(auth_token: str, ct0: str, max_pages: int, exis
         if not next_cursor or next_cursor == cursor or page_new_count == 0:
             break
         cursor = next_cursor
+
+    # 按 X timeline sortIndex 统一重排，跨分页仍保持“最近收藏 → 更早收藏”的顺序。
+    # Python int 可安全处理 X 的大整数 sortIndex。
+    pulled.sort(
+        key=lambda item: int(item.get("bookmark_sort_index") or 0),
+        reverse=True,
+    )
 
     return pulled, {
         "query_id": selected_query_id,

@@ -26,6 +26,24 @@ VALID_CATEGORIES = list(CONFIG.default_categories)
 WORKERS_AI_CANDIDATE_MODELS = list(CONFIG.workers_ai_models)
 
 
+def _row_get(row, key: str, default=None):
+    """兼容 D1 Python bridge 返回的 dict / JS Record 属性访问。"""
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        value = getattr(row, key)
+        return default if value is None else value
+    except Exception:
+        pass
+    try:
+        value = row[key]
+        return default if value is None else value
+    except Exception:
+        return default
+
+
 def rule_classify_tweet(text: str, title: str = "") -> tuple[str, str]:
     """基于规则启发式的双层分类（专区分类, 子分类）。"""
     full = f"{title} {text}".lower()
@@ -114,7 +132,7 @@ async def get_existing_categories(env) -> list[str]:
                 "WHERE category != '00_云端实时书签' AND category != '未分类' AND category NOT LIKE '%书签%'"
             )
             res = await stmt.all()
-            db_cats = [str(getattr(r, "category", "")) for r in res.results if getattr(r, "category", "")]
+            db_cats = [str(_row_get(r, "category", "")) for r in res.results if _row_get(r, "category", "")]
             if db_cats:
                 cats = sorted(list(set(cats + db_cats)))
         except Exception as e:

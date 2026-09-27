@@ -138,6 +138,34 @@ async def on_fetch(request, env):
                     "data": pulled,
                 }, 500)
 
+            # 闭环验证：写完 D1 后立即从“前端同一读取路径”回读。
+            # 这样 success=True 同时意味着 X -> D1 -> /api/tweets 三段链路是一致的。
+            readback = await load_tweets(env, bypass_cache=True)
+            readback_head_ids = [
+                str(item.get("id"))
+                for item in (readback.get("data") or [])[:10]
+                if item.get("id")
+            ]
+            expected_head_ids = [str(item.get("id")) for item in pulled[:10] if item.get("id")]
+            storage_meta["readback_head_ids"] = readback_head_ids
+            storage_meta["readback_total"] = int(readback.get("total", 0) or 0)
+            storage_meta["readback_source"] = readback.get("source", "")
+            storage_meta["head_order_matches"] = (
+                not expected_head_ids
+                or readback_head_ids[:len(expected_head_ids)] == expected_head_ids
+            )
+
+            if not readback.get("success") or not storage_meta["head_order_matches"]:
+                return json_resp({
+                    "success": False,
+                    "error": "READBACK_MISMATCH",
+                    "message": "X 数据已写入，但 D1 -> 前端读取回路与 X 收藏顺序不一致。",
+                    "pulled_count": len(pulled),
+                    "fetch": fetch_meta,
+                    "storage": storage_meta,
+                    "storage_status": storage_status,
+                }, 500)
+
             return json_resp({
                 "success": True,
                 "message": f"X 拉取 {len(pulled)} 条；{storage_msg}",
@@ -151,11 +179,9 @@ async def on_fetch(request, env):
         if path == "/api/tweets":
             fresh = query.get("fresh", ["0"])[0] == "1"
             res = await load_tweets(env, bypass_cache=fresh)
-            return json_resp(
-                res,
-                200,
-                cache_seconds=0 if fresh else CONFIG.cache_seconds,
-            )
+            # 书签是用户私有状态，禁止 CDN public cache / stale-while-revalidate。
+            # 浏览器端已有 localStorage SWR；网络层始终返回 D1 当前状态。
+            return json_resp(res, 200, cache_seconds=0)
 
         if path == "/api/bookmarks/classify" and method == "POST":
             ok, msg, items = await batch_classify_pending(env)
