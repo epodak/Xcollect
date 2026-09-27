@@ -187,6 +187,153 @@ def _extract_media(legacy: dict):
     return images, videos
 
 
+def _expand_x_urls(text: str, entity_set: dict | None) -> str:
+    """把 t.co 占位符尽量还原为真实 URL，得到可长期保存的正文。"""
+    text = str(text or "")
+    if not text or not isinstance(entity_set, dict):
+        return text
+    for entity in entity_set.get("urls", []) or []:
+        short = str(entity.get("url", "") or "")
+        expanded = str(entity.get("expanded_url", "") or entity.get("display_url", "") or "")
+        if short and expanded:
+            text = text.replace(short, expanded)
+    return text
+
+
+def _normalize_article_entity_map(content_state: dict) -> dict:
+    raw = content_state.get("entityMap", {}) or {}
+    out = {}
+    if isinstance(raw, list):
+        for entry in raw:
+            if isinstance(entry, dict) and entry.get("key") is not None:
+                out[str(entry.get("key"))] = entry.get("value") or {}
+    elif isinstance(raw, dict):
+        for key, entry in raw.items():
+            if isinstance(entry, dict) and "value" in entry:
+                out[str(key)] = entry.get("value") or {}
+            else:
+                out[str(key)] = entry or {}
+    return out
+
+
+def _article_to_markdown(article_result: dict) -> tuple[str, str, list[str]]:
+    """将 X Article 的 Draft.js content_state 归一化为可移植 Markdown。"""
+    if not isinstance(article_result, dict):
+        return "", "", []
+
+    title = str(article_result.get("title", "") or "").strip()
+    content_state = article_result.get("content_state", {}) or {}
+    blocks = content_state.get("blocks", []) or []
+    if not isinstance(blocks, list):
+        blocks = []
+
+    entity_by_key = _normalize_article_entity_map(content_state)
+    media_url_by_id = {}
+    raw_media = article_result.get("media_entities", {}) or {}
+    media_iter = raw_media.values() if isinstance(raw_media, dict) else raw_media
+    for media in media_iter or []:
+        if not isinstance(media, dict):
+            continue
+        media_id = media.get("media_id")
+        media_url = ((media.get("media_info", {}) or {}).get("original_img_url", "") or "")
+        if media_id is not None and media_url:
+            media_url_by_id[str(media_id)] = str(media_url)
+
+    parts = []
+    inline_images = []
+    ordered_counter = 0
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_type = str(block.get("type", "unstyled") or "unstyled")
+        text = str(block.get("text", "") or "")
+
+        if block_type == "atomic":
+            ranges = block.get("entityRanges", []) or []
+            entity_key = ranges[0].get("key") if ranges and isinstance(ranges[0], dict) else None
+            entity = entity_by_key.get(str(entity_key), {}) if entity_key is not None else {}
+            if isinstance(entity, dict) and entity.get("type") == "MEDIA":
+                data = entity.get("data", {}) or {}
+                media_items = data.get("mediaItems", []) or []
+                media_id = media_items[0].get("mediaId") if media_items and isinstance(media_items[0], dict) else None
+                image_url = media_url_by_id.get(str(media_id), "") if media_id is not None else ""
+                if image_url:
+                    caption = str(data.get("caption", "") or "Image").replace("]", "&#93;")
+                    parts.append("![" + caption + "](" + image_url + ")")
+                    inline_images.append(image_url)
+            continue
+
+        if not text:
+            continue
+        if block_type != "ordered-list-item":
+            ordered_counter = 0
+
+        if block_type == "header-one":
+            parts.append("# " + text)
+        elif block_type == "header-two":
+            parts.append("## " + text)
+        elif block_type == "header-three":
+            parts.append("### " + text)
+        elif block_type == "blockquote":
+            parts.append("> " + text)
+        elif block_type == "unordered-list-item":
+            parts.append("- " + text)
+        elif block_type == "ordered-list-item":
+            ordered_counter += 1
+            parts.append(str(ordered_counter) + ". " + text)
+        elif block_type == "code-block":
+            parts.append("    " + text.replace("\n", "\n    "))
+        else:
+            parts.append(text)
+
+    body = "\n\n".join(parts).strip()
+    if not body:
+        body = str(article_result.get("plain_text", "") or article_result.get("content", "") or "").strip()
+    return title, body, inline_images
+
+
+def _extract_canonical_content(tweet_result: dict, legacy: dict) -> tuple[str, str, list[str]]:
+    """统一正文：Article > Note Tweet > legacy.full_text。"""
+    article_result = (
+        (((tweet_result.get("article", {}) or {}).get("article_results", {}) or {}).get("result"))
+        or (((legacy.get("article", {}) or {}).get("article_results", {}) or {}).get("result"))
+        or ((tweet_result.get("article_results", {}) or {}).get("result"))
+    )
+    if isinstance(article_result, dict):
+        article_title, article_body, article_images = _article_to_markdown(article_result)
+        if article_body:
+            return article_title, article_body, article_images
+
+    note_result = ((((tweet_result.get("note_tweet", {}) or {}).get("note_tweet_results", {}) or {}).get("result")) or {})
+    note_text = str(note_result.get("text", "") or "")
+    if note_text:
+        note_text = _expand_x_urls(note_text, note_result.get("entity_set", {}) or {})
+        return "", note_text.strip(), []
+
+    legacy_text = str(legacy.get("full_text", "") or "")
+    legacy_text = _expand_x_urls(legacy_text, legacy.get("entities", {}) or {})
+    return "", legacy_text.strip(), []
+
+
+def _append_quoted_tweet(body: str, tweet_result: dict) -> str:
+    """把引用推文折叠进 canonical document，避免阅读器丢上下文。"""
+    quoted = _unwrap_tweet_result(((tweet_result.get("quoted_status_result", {}) or {}).get("result", {}) or {}))
+    if not quoted:
+        return body
+
+    q_legacy = quoted.get("legacy", {}) or {}
+    _, q_body, _ = _extract_canonical_content(quoted, q_legacy)
+    if not q_body:
+        return body
+
+    q_user = _unwrap_user_result(((quoted.get("core", {}) or {}).get("user_results", {}) or {}).get("result", {}) or {})
+    q_core = q_user.get("core", {}) or {}
+    q_legacy_user = q_user.get("legacy", {}) or {}
+    q_name = q_core.get("screen_name") or q_legacy_user.get("screen_name") or "unknown"
+    quoted_md = "\n".join(("> " + line) if line else ">" for line in q_body.splitlines())
+    return (body.rstrip() + "\n\n---\n\n> 引用 @" + str(q_name) + "\n>\n" + quoted_md).strip()
+
+
 async def call_x_bookmark_api(tweet_id: str, action: str, auth_token: str, ct0: str) -> tuple[bool, str]:
     if js_fetch is None:
         return False, "当前运行环境不支持 js_fetch"
