@@ -157,3 +157,31 @@ Want richer querying, topology, agent memory?
 ```
 
 That is the intended progression.
+
+
+---
+
+## Known structural debt
+
+Local and Cloud profiles currently have different runtime HTTP stacks:
+
+- `local_server.py` uses Python stdlib HTTP / urllib;
+- Cloudflare uses `src/entry.py`, `src/twitter.py`, `src/storage.py`.
+
+Their external contracts are now aligned, but some X parsing / synchronization logic is still duplicated.
+
+The Phase 1 refactor should extract pure, runtime-neutral components:
+
+```text
+X protocol model / parser
+Incremental-sync policy
+ExplorationItem normalization
+Semantic merge policy
+        ↓
+Runtime adapters
+├── Local urllib + JSON
+└── Cloudflare js_fetch + D1/KV
+```
+
+Do not solve this by making Local depend on Cloudflare modules or by making Cloud depend on the local HTTP server.
+The shared layer should contain pure domain logic; runtime-specific I/O stays at the edges.

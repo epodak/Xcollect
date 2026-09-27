@@ -35,7 +35,7 @@ const api = {
     return await resp.json();
   },
 
-  // 获取推文聚合列表；fresh=true 时绕过 HTTP 缓存用于同步后的 D1 read-back
+  // 获取聚合列表；fresh=true 时绕过 HTTP 缓存用于同步后的持久化层 read-back
   async getTweets(fresh = false) {
     const url = fresh ? `/api/tweets?fresh=1&_=${Date.now()}` : "/api/tweets";
     const resp = await fetch(url, fresh ? { cache: "no-store" } : undefined);

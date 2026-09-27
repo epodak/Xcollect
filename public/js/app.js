@@ -157,7 +157,7 @@ async function initApp() {
       try {
         const res = await api.syncBookmarks();
         if (res.success) {
-          // D1 fresh read-back：界面只展示真正已持久化的数据，而不是直接相信拉取 payload。
+          // 持久化层 fresh read-back：界面只展示真正已保存的数据，而不是直接相信拉取 payload。
           const fresh = await api.getTweets(true);
           if (fresh.success && Array.isArray(fresh.data)) {
             const existingIds = new Set(tweets.map(t => t.id));
@@ -171,14 +171,23 @@ async function initApp() {
             renderCategories();
             applyFiltersAndRender(false);
 
-            const d1Written = res.storage && Number.isFinite(res.storage.d1_written)
-              ? res.storage.d1_written
-              : 0;
-            const d1Total = res.storage_status && res.storage_status.d1_row_count != null
-              ? res.storage_status.d1_row_count
-              : tweets.length;
+            const backend = res.storage_profile
+              || (res.storage && res.storage.backend)
+              || fresh.storage_profile
+              || fresh.source
+              || "storage";
+            const storedNew = res.new_count != null
+              ? res.new_count
+              : (res.storage && Number.isFinite(res.storage.d1_written)
+                ? res.storage.d1_written
+                : newItems.length);
+            const storedTotal = res.count != null
+              ? res.count
+              : (res.storage_status && res.storage_status.d1_row_count != null
+                ? res.storage_status.d1_row_count
+                : tweets.length);
             if (newItems.length > 0) {
-              showToast(`自动同步：X 拉取 ${res.pulled_count || 0}，D1 写入 ${d1Written}，D1 总计 ${d1Total}，新增 ${newItems.length}`);
+              showToast(`自动同步：X 拉取 ${res.pulled_count || res.count || 0}，${backend} 新增 ${storedNew}，总计 ${storedTotal}`);
             }
           }
         } else {
@@ -562,10 +571,10 @@ function setupEventListeners() {
         try {
           const result = await api.syncBookmarks();
           if (result.success) {
-            // 同步成功之后强制从 D1 再读一次，以持久化结果作为唯一权威。
+            // 同步成功之后强制从当前 Storage Profile 再读一次，以持久化结果作为唯一权威。
             const fresh = await api.getTweets(true);
             if (!fresh.success || !Array.isArray(fresh.data)) {
-              throw new Error("同步已返回成功，但 D1 fresh read-back 失败");
+              throw new Error("同步已返回成功，但持久化层 fresh read-back 失败");
             }
 
             const existingIds = new Set(tweets.map(t => t.id));
@@ -582,13 +591,22 @@ function setupEventListeners() {
             renderCategories();
             applyFiltersAndRender();
 
-            const d1Written = result.storage && Number.isFinite(result.storage.d1_written)
-              ? result.storage.d1_written
-              : 0;
-            const d1Total = result.storage_status && result.storage_status.d1_row_count != null
-              ? result.storage_status.d1_row_count
-              : tweets.length;
-            showToast(`同步完成：X 拉取 ${result.pulled_count || 0}，D1 写入 ${d1Written}，D1 总计 ${d1Total}，当前新增 ${newItems.length}`);
+            const backend = result.storage_profile
+              || (result.storage && result.storage.backend)
+              || fresh.storage_profile
+              || fresh.source
+              || "storage";
+            const storedNew = result.new_count != null
+              ? result.new_count
+              : (result.storage && Number.isFinite(result.storage.d1_written)
+                ? result.storage.d1_written
+                : newItems.length);
+            const storedTotal = result.count != null
+              ? result.count
+              : (result.storage_status && result.storage_status.d1_row_count != null
+                ? result.storage_status.d1_row_count
+                : tweets.length);
+            showToast(`同步完成：X 拉取 ${result.pulled_count || result.count || 0}，${backend} 新增 ${storedNew}，总计 ${storedTotal}`);
           } else {
             showToast(result.message || result.error || "从 X 拉取书签失败", false);
           }
@@ -616,7 +634,7 @@ function setupEventListeners() {
             const result = await resp.json();
             if (result.success) {
               showToast(result.message);
-              // 重新拉取 D1 最新数据并刷新界面
+              // 重新拉取当前持久化层最新数据并刷新界面
               try {
                 const d1Resp = await fetch("/api/tweets");
                 if (d1Resp.ok) {

@@ -205,6 +205,7 @@ Topology / Search / Resurfacing
 Key work:
 
 - introduce a source-neutral `ExplorationItem` schema;
+- extract runtime-neutral X parsing, incremental-sync policy and semantic-merge logic shared by Local and Cloud profiles;
 - isolate Twitter-specific parsing and credentials behind an adapter boundary;
 - define adapter capability flags such as `read`, `write_back`, `delete`, `incremental_sync`;
 - preserve raw source payload for forward compatibility;
