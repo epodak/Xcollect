@@ -41,6 +41,7 @@ BOOKMARK_FEATURES = {
     "view_counts_everywhere_api_enabled": True,
     "longform_notetweets_consumption_enabled": True,
     "responsive_web_twitter_article_tweet_consumption_enabled": True,
+    "articles_preview_enabled": True,
     "tweet_awards_web_tipping_enabled": False,
     "freedom_of_speech_not_reach_fetch_enabled": True,
     "standardized_nudges_misinfo": True,
@@ -49,6 +50,11 @@ BOOKMARK_FEATURES = {
     "longform_notetweets_rich_text_read_enabled": True,
     "longform_notetweets_inline_media_enabled": True,
     "responsive_web_enhance_cards_enabled": False,
+}
+
+BOOKMARK_FIELD_TOGGLES = {
+    "withArticleRichContentState": True,
+    "withArticlePlainText": True,
 }
 
 
@@ -149,6 +155,7 @@ def _build_bookmarks_url(query_id: str, cursor=None) -> str:
     params = {
         "variables": json.dumps(variables, separators=(",", ":")),
         "features": json.dumps(BOOKMARK_FEATURES, separators=(",", ":")),
+        "fieldToggles": json.dumps(BOOKMARK_FIELD_TOGGLES, separators=(",", ":")),
     }
     return f"https://x.com/i/api/graphql/{query_id}/Bookmarks?" + urllib.parse.urlencode(params)
 
