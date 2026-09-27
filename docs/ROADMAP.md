@@ -157,8 +157,8 @@ Status: **implemented / evolving**
 Current capabilities establish the first complete source adapter:
 
 - X / Twitter bookmark synchronization;
-- local-first operation;
-- Cloudflare D1 / KV / local storage cascade;
+- first-class Local Profile: Python + `data/xcollect.json`, no cloud dependency;
+- optional Personal Cloud Profile: Cloudflare Worker with D1 primary / KV fallback;
 - pluggable AI classification;
 - category + `sub_category`;
 - topology renormalization;
@@ -166,6 +166,21 @@ Current capabilities establish the first complete source adapter:
 - reversible interaction with X bookmarks where supported.
 
 The immediate goal of this phase is to make the current adapter reliable while removing Twitter-specific assumptions from the core data model.
+
+Deployment profiles are intentionally orthogonal to source adapters:
+
+```text
+Source Adapter                    Storage Profile
+──────────────                    ───────────────
+Twitter/X ─┐                      Local JSON
+GitHub    ─┼── Exploration Core ─→ Cloudflare KV
+Browser   ─┘                      Cloudflare D1
+```
+
+Local JSON is not a degraded Cloudflare mode. It is the primary storage of the Local Profile.
+Cloudflare exists to unlock remote access and richer server-side capabilities.
+
+See [Deployment Profiles](./engineering/DEPLOYMENT_PROFILES.md).
 
 ### Phase 1 — Source-neutral core
 

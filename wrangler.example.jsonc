@@ -2,6 +2,9 @@
  * ==============================================================================
  * Cloudflare Python Workers 配置文件模板 (wrangler.example.jsonc)
  *
+ * 注意：这是可选的 Personal Cloud / D1 Profile 示例。
+ * 只在 127.0.0.1 本地使用 Xcollect 的用户完全不需要此文件、Cloudflare 或 D1。
+ *
  * 遵循 Agent Relay Hygiene 规范：
  * - 本文件随开源仓库提交，作为社区部署模板 (1:1 影子镜像)
  * - 首次部署前请复制为本地私有配置：cp wrangler.example.jsonc wrangler.jsonc

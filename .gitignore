@@ -46,3 +46,7 @@ scratch/
 scripts/seed.sql
 *.log
 
+
+
+# 7. Local Profile 运行时数据（用户私有，不随仓库提交）
+data/

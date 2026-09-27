@@ -18,3 +18,12 @@
 
 4. **Evaluation closes the loop.**
    A task recipe without an objective evaluation criterion (test assertion, exit code, typecheck) is incomplete. Execution stops only when acceptance gates pass (`python local_server.py --check`).
+
+
+5. **Deployment profile invariant (progressive capability enhancement).**
+   - Local Profile is first-class and is the default onboarding path: Python + local JSON + X credentials.
+   - Cloudflare is optional remote-access infrastructure, never a prerequisite for basic use.
+   - D1/KV/Workers AI may enhance capability but must not raise the minimum installation floor.
+   - `scripts/seed_data.json` is a repository seed/demo asset; mutable user data belongs under ignored runtime storage such as `data/xcollect.json`.
+   - Documentation must explain Local Profile before Cloud Profile.
+   - See `docs/engineering/DEPLOYMENT_PROFILES.md`.

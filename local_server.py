@@ -18,6 +18,8 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import re
+import shutil
+import threading
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -26,8 +28,11 @@ from config_loader import CONFIG
 
 BASE_DIR = Path(__file__).resolve().parent
 SERVE_DIR = str(BASE_DIR / "public")
-DB_FILE = str(BASE_DIR / "scripts" / "seed_data.json")
+DATA_DIR = BASE_DIR / "data"
+DB_FILE = str(DATA_DIR / "xcollect.json")
+SEED_FILE = str(BASE_DIR / "scripts" / "seed_data.json")
 ENV_FILE = str(BASE_DIR / ".env")
+LOCAL_DB_LOCK = threading.RLock()
 
 PORT = CONFIG.port
 TWITTER_BEARER = CONFIG.twitter_bearer
@@ -118,6 +123,63 @@ def rule_classify_tweet(text, title=""):
     return "05_前沿资讯与研读", sub
 
 
+def atomic_write_json(path, data, keep_backup=True):
+    """原子写入本地 JSON；同目录临时文件 + fsync + os.replace，避免中断损坏主库。"""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    backup = target.with_suffix(target.suffix + ".bak")
+
+    with LOCAL_DB_LOCK:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+
+        if keep_backup and target.exists():
+            try:
+                shutil.copy2(target, backup)
+            except Exception:
+                pass
+
+        os.replace(tmp, target)
+
+
+def ensure_local_data_file():
+    """创建 Local Profile 数据文件；首次运行兼容迁移旧 seed_data.json 内容。"""
+    target = Path(DB_FILE)
+    if target.exists():
+        return
+
+    initial = []
+    legacy = Path(SEED_FILE)
+    if legacy.exists():
+        try:
+            with open(legacy, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                initial = loaded
+        except Exception:
+            initial = []
+
+    atomic_write_json(DB_FILE, initial, keep_backup=False)
+
+
+def load_local_tweets():
+    ensure_local_data_file()
+    with LOCAL_DB_LOCK:
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+
+def save_local_tweets(tweets):
+    atomic_write_json(DB_FILE, tweets)
+
+
 def get_credentials():
     """从配置中心提取机密凭证 (单一真源来自 .env / 环境)"""
     if CONFIG.x_auth_token and CONFIG.x_ct0:
@@ -142,18 +204,37 @@ def get_credentials():
 
 
 def save_credentials(auth_token, ct0):
-    """保存凭证至本地私有真源 .env 及 Cloudflare 本地机密文件 .dev.vars"""
-    data = {"auth_token": auth_token.strip(), "ct0": ct0.strip()}
+    """Local Profile 仅更新 .env 中的 X 凭证，并保留其他私有配置。"""
+    auth_token = auth_token.strip()
+    ct0 = ct0.strip()
+    data = {"auth_token": auth_token, "ct0": ct0}
+
+    preserved = []
+    if os.path.exists(ENV_FILE):
+        try:
+            with open(ENV_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    key = line.split("=", 1)[0].strip() if "=" in line else ""
+                    if key not in ("X_AUTH_TOKEN", "X_CT0"):
+                        preserved.append(line.rstrip("\n"))
+        except Exception:
+            preserved = []
+
+    lines = [
+        "# Xcollect 本地私有配置（已入 .gitignore）",
+        f"X_AUTH_TOKEN={auth_token}",
+        f"X_CT0={ct0}",
+    ]
+    if preserved:
+        lines.extend([""] + preserved)
+
     with open(ENV_FILE, "w", encoding="utf-8") as f:
-        f.write(f"# X 身份凭证 (由本地开发服务器写入，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
-    try:
-        dev_vars_file = os.path.join(os.path.dirname(__file__), ".dev.vars")
-        with open(dev_vars_file, "w", encoding="utf-8") as f:
-            f.write(f"# Cloudflare Wrangler 本地开发机密注入文件 (由 .env 同步，已入 .gitignore)\nX_AUTH_TOKEN={auth_token.strip()}\nX_CT0={ct0.strip()}\n")
-    except Exception:
-        pass
-    CONFIG.x_auth_token = auth_token.strip()
-    CONFIG.x_ct0 = ct0.strip()
+        f.write("\n".join(lines).rstrip() + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+    CONFIG.x_auth_token = auth_token
+    CONFIG.x_ct0 = ct0
     return data
 
 
@@ -382,7 +463,8 @@ def fetch_remote_bookmarks(max_pages=None):
                                 first_line = full_text.splitlines()[0] if full_text else "推文"
                                 display_title = first_line[:45] + ("..." if len(first_line) > 45 else "")
 
-                                cat, subcat = classify_tweet_multi_tier(full_text, display_title)
+                                # 同步阶段只做零网络开销规则投影；AI 深分类由独立按钮/端点执行。
+                                cat, subcat = rule_classify_tweet(full_text, display_title)
 
                                 all_tweets.append({
                                     "id": rest_id,
@@ -395,6 +477,7 @@ def fetch_remote_bookmarks(max_pages=None):
                                     "avatar": avatar_url,
                                     "url": f"https://x.com/{screen_name}/status/{rest_id}",
                                     "created_at": created_at,
+                                    "bookmark_sort_index": str(entry.get("sortIndex", "") or ""),
                                     "likes": fav_count,
                                     "retweets": retweet_count,
                                     "views": views_count,
@@ -412,6 +495,10 @@ def fetch_remote_bookmarks(max_pages=None):
                 break
             cursor = next_cursor
 
+        all_tweets.sort(
+            key=lambda item: int(item.get("bookmark_sort_index") or 0),
+            reverse=True,
+        )
         return True, f"成功连续翻页同步 {page_count} 页，共拉取 {len(all_tweets)} 篇云端书签！", all_tweets
     except urllib.error.HTTPError as e:
         return False, f"X 平台返回错误 (HTTP {e.code})", all_tweets
@@ -439,46 +526,60 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/tweets":
-            if os.path.exists(DB_FILE):
-                try:
-                    with open(DB_FILE, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({
-                        "success": True,
-                        "source": "Local JSON DB",
-                        "total": len(data),
-                        "data": data
-                    }, ensure_ascii=False).encode("utf-8"))
-                    return
-                except Exception:
-                    pass
+            data = load_local_tweets()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "source": "Local JSON",
+                "storage_profile": "local",
+                "total": len(data),
+                "data": data
+            }, ensure_ascii=False).encode("utf-8"))
+            return
 
         if parsed.path == "/api/bookmarks/sync":
             # 实时从云端拉取全量历史书签（多页游标循环）并合并到本地数据库中
             success, msg, remote_tweets = fetch_remote_bookmarks(max_pages=CONFIG.max_sync_pages)
             if success:
-                existing_map = {}
-                if os.path.exists(DB_FILE):
-                    try:
-                        with open(DB_FILE, "r", encoding="utf-8") as f:
-                            for item in json.load(f):
-                                existing_map[item.get("id")] = item
-                    except Exception:
-                        pass
-                
+                existing = load_local_tweets()
+                existing_map = {str(item.get("id")): item for item in existing if item.get("id")}
+
                 new_add_count = 0
-                for rt in remote_tweets:
-                    tid = rt.get("id")
-                    if tid not in existing_map:
-                        existing_map[tid] = rt
+                remote_ordered = []
+                remote_ids = set()
+                for position, rt in enumerate(remote_tweets):
+                    tid = str(rt.get("id", ""))
+                    if not tid:
+                        continue
+                    remote_ids.add(tid)
+                    old = existing_map.get(tid)
+
+                    if old:
+                        merged = dict(old)
+                        merged.update(rt)
+                        # 本地知识层属于 Xcollect，不应被下一次源同步覆盖。
+                        for semantic_key in ("category", "sub_category", "classify_status"):
+                            if old.get(semantic_key):
+                                merged[semantic_key] = old[semantic_key]
+                    else:
+                        merged = dict(rt)
                         new_add_count += 1
-                        
-                combined_list = list(existing_map.values())
-                with open(DB_FILE, "w", encoding="utf-8") as f:
-                    json.dump(combined_list, f, ensure_ascii=False)
+
+                    merged["bookmark_position"] = position
+                    remote_ordered.append(merged)
+
+                tail = [
+                    item for item in existing
+                    if str(item.get("id", "")) not in remote_ids
+                ]
+                for offset, item in enumerate(tail, start=len(remote_ordered)):
+                    item["bookmark_position"] = offset
+
+                combined_list = remote_ordered + tail
+                save_local_tweets(combined_list)
                     
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -497,13 +598,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/topology/status":
-            tweets = []
-            if os.path.exists(DB_FILE):
-                try:
-                    with open(DB_FILE, "r", encoding="utf-8") as f:
-                        tweets = json.load(f)
-                except Exception:
-                    pass
+            tweets = load_local_tweets()
             total = len(tweets)
             projected = [t for t in tweets if t.get("classify_status") == "projected"]
             settled = [t for t in tweets if t.get("classify_status", "settled") == "settled"]
@@ -563,15 +658,10 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 action = data.get("action", "delete")
                 
                 success, msg = call_x_bookmark_api(tweet_id, action)
-                if success and action == "delete" and os.path.exists(DB_FILE):
-                    try:
-                        with open(DB_FILE, "r", encoding="utf-8") as f:
-                            existing = json.load(f)
-                        filtered = [t for t in existing if str(t.get("id")) != str(tweet_id)]
-                        with open(DB_FILE, "w", encoding="utf-8") as f:
-                            json.dump(filtered, f, ensure_ascii=False)
-                    except Exception:
-                        pass
+                if success and action == "delete":
+                    existing = load_local_tweets()
+                    filtered = [t for t in existing if str(t.get("id")) != str(tweet_id)]
+                    save_local_tweets(filtered)
 
                 self.send_response(200 if success else 400)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -588,16 +678,14 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             classified_count = 0
             if os.path.exists(DB_FILE):
                 try:
-                    with open(DB_FILE, "r", encoding="utf-8") as f:
-                        tweets = json.load(f)
+                    tweets = load_local_tweets()
                     for t in tweets:
                         if t.get("category") in ("00_云端实时书签", "未分类", "") or "书签" in t.get("category", ""):
                             cat, sub = classify_tweet_multi_tier(t.get("body_raw", "") or t.get("snippet", ""), t.get("title", ""))
                             t["category"] = cat
                             t["sub_category"] = sub
                             classified_count += 1
-                    with open(DB_FILE, "w", encoding="utf-8") as f:
-                        json.dump(tweets, f, ensure_ascii=False)
+                    save_local_tweets(tweets)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
                     self.end_headers()
@@ -617,15 +705,11 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
         if parsed.path == "/api/topology/renormalize":
             if os.path.exists(DB_FILE):
                 try:
-                    with open(DB_FILE, "r", encoding="utf-8") as f:
-                        tweets = json.load(f)
-                    
+                    tweets = load_local_tweets()
                     projected = [t for t in tweets if t.get("classify_status") == "projected"]
                     for t in tweets:
                         t["classify_status"] = "settled"
-                    
-                    with open(DB_FILE, "w", encoding="utf-8") as f:
-                        json.dump(tweets, f, ensure_ascii=False)
+                    save_local_tweets(tweets)
                         
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -660,7 +744,7 @@ if __name__ == "__main__":
             os.path.join(SERVE_DIR, "index.html"),
             os.path.join(SERVE_DIR, "css", "cards.css"),
             os.path.join(SERVE_DIR, "js", "app.js"),
-            DB_FILE
+            SEED_FILE,
         ]
         for fpath in required_files:
             if not os.path.exists(fpath):
@@ -696,7 +780,7 @@ if __name__ == "__main__":
 
         # 检查 seed_data.json
         try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
+            with open(SEED_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, list):
                 print("❌ 种子推文数据源格式错误，应为列表")
@@ -706,8 +790,25 @@ if __name__ == "__main__":
             print(f"❌ 种子数据解析失败: {e}")
             sys.exit(1)
 
+        # Local Profile 的运行时数据不要求预先存在，但目录必须可创建/写入。
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            probe = DATA_DIR / ".xcollect_write_probe"
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("ok")
+                f.flush()
+                os.fsync(f.fileno())
+            probe.unlink(missing_ok=True)
+            print(f"  ✓ Local Profile 数据目录可写: {DATA_DIR}")
+        except Exception as e:
+            print(f"❌ Local Profile 数据目录不可写: {e}")
+            sys.exit(1)
+
         print("✅ 工程卫生冒烟自检完全通过！(All smoke checks passed)")
         sys.exit(0)
+
+    # 正常启动时才初始化/迁移 Local Profile 数据；--check 不要求用户数据预先存在。
+    ensure_local_data_file()
 
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
@@ -716,7 +817,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"🚀 Xcollect Twitter 看板与同步服务已在本地启动: http://{CONFIG.host}:{args.port}")
     print(f"📂 静态托管资产目录: {SERVE_DIR}")
-    print(f"📦 数据持久化文件: {DB_FILE}")
+    print(f"📦 Local Profile 数据文件: {DB_FILE}")
     print(f"⚙️  AI 算力引擎: {CONFIG.ai_provider} (模型: {CONFIG.custom_ai_model})")
     print("=" * 60)
     try:

@@ -2,23 +2,19 @@
   <img src="./public/images/logo.jpg" alt="Xcollect Logo" width="160px" style="border-radius: 28px; box-shadow: 0 10px 30px rgba(13, 148, 136, 0.4);">
 </p>
 
-<h1 align="center">𝕏 书签智能聚合看板 (Xcollect)</h1>
-<p align="center"><b>Twitter / 𝕏 书签双向云同步中枢与极客知识资产库</b></p>
+<h1 align="center">Xcollect — Exploration Collector</h1>
+<p align="center"><b>从 X / Twitter 书签开始，把“以后再看”变成真正能找回来的个人探索记忆</b></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Cost-100%25_Free_Tier-brightgreen?style=for-the-badge&logo=cloudflare" alt="100% Free">
-  <img src="https://img.shields.io/badge/Cloudflare_Workers-Python-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
-  <img src="https://img.shields.io/badge/Database-Cloudflare_D1-0051C3?style=for-the-badge&logo=sqlite&logoColor=white" alt="Cloudflare D1">
-  <img src="https://img.shields.io/badge/Package_Manager-pnpm-4A4A4A?style=for-the-badge&logo=pnpm&logoColor=white" alt="pnpm">
-  <img src="https://img.shields.io/badge/Design-Petrol_Teal-005b5b?style=for-the-badge" alt="Petrol Teal UI">
+  <img src="https://img.shields.io/badge/Default-Local--First-2ea44f?style=for-the-badge" alt="Local First">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Cloudflare-Optional-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Optional">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
 </p>
 
-> 基于 **Cloudflare Python Workers**、**Cloudflare D1** 边缘数据库与现代前端（深青 Petrol Teal 视觉系统）构建的 Twitter / 𝕏 书签实时双向同步中枢与知识资产库。**100% 运行于 Cloudflare 官方免费额度之内，零服务器成本，无需绑定信用卡。**
-
-> **X in Xcollect means Exploration, not X / Twitter.**
+> **X = Exploration，不只是 X / Twitter。**
 >
-> 当前版本从 Twitter / 𝕏 书签切入，但 Twitter / 𝕏 只是 **Adapter 01**，不是 Xcollect 的产品边界。长期目标是把 Bookmark、Star、Save、Watch Later 等分散在各平台的“弱未来意图”统一成可检索、可理解、可关联、可重新行动的个人 Exploration Memory。
+> 当前版本先从 X / Twitter Bookmarks 做完整闭环。长期目标是把 GitHub Star、Browser Bookmark、Reddit Save、YouTube Watch Later 等分散的“弱未来意图”，沉淀成可检索、可理解、可重新行动的个人 Exploration Memory。
 
 <p align="center">
   <img src="./public/images/feat_overview.png" alt="Xcollect 看板全景预览" width="100%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);">
@@ -26,9 +22,127 @@
 
 ---
 
+## 🚀 先跑起来：本地模式只需要 Python
+
+**这是 Xcollect 默认、最推荐的起步方式。**
+
+你不需要：
+
+- Cloudflare
+- D1 / KV
+- 域名
+- Node.js
+- AI API Key
+
+你只需要：
+
+- Python 3.10+
+- 自己 X / Twitter 登录会话里的 `auth_token`
+- `ct0`
+
+### 1. 克隆
+
+```bash
+git clone https://github.com/epodak/Xcollect.git
+cd Xcollect
+```
+
+### 2. 配置 X 凭证
+
+```bash
+cp .env.example .env
+```
+
+填写：
+
+```env
+X_AUTH_TOKEN=你的_auth_token
+X_CT0=你的_ct0
+```
+
+### 3. 启动
+
+```bash
+python local_server.py --check
+python local_server.py
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:8089
+```
+
+本地模式的数据保存在：
+
+```text
+data/xcollect.json
+```
+
+这是你的私有运行时数据，已被 `.gitignore` 排除，不会进入开源仓库。
+
+---
+
+## 🧭 我应该用哪种模式？
+
+| 需求 | 推荐模式 | 主要存储 | 需要 Cloudflare？ |
+| --- | --- | --- | --- |
+| 我只想自己电脑上用 | **Local Profile** | JSON | 否 |
+| 我想手机 / 其他电脑远程访问 | **Personal Cloud** | D1 / KV | 是 |
+| 我想做更丰富的查询、拓扑、Agent Memory | **Personal Cloud + D1** | D1 | 是 |
+
+核心原则：
+
+> **更强的基础设施只负责提升能力，不应该提高最低使用门槛。**
+
+Local Profile 是一等公民，不是 Cloudflare 失败后的 fallback。
+
+完整部署哲学见：[Deployment Profiles](./docs/engineering/DEPLOYMENT_PROFILES.md)。
+
+---
+
+## ✨ 当前能做什么？
+
+### Local Profile：零云依赖
+
+- 🔄 **同步 X / Twitter Bookmarks**：从真实 X Web GraphQL 拉取个人收藏。
+- ⭐ **按真实收藏顺序显示**：不是简单按点赞量或推文发布时间冒充“最新收藏”。
+- 🏡 **本地 JSON 持久化**：运行时数据库是 `data/xcollect.json`。
+- 🛡️ **原子写入**：通过临时文件 + `fsync` + `os.replace` 避免中断时损坏主库，并保留 best-effort `.bak`。
+- 🧠 **零 Key 规则分类**：没有 AI Key 也可以运行。
+- ✨ **可选 AI 深分类**：配置 OpenAI-compatible API 后再开启，不影响基础功能。
+- 🎨 **Petrol Teal UI**：响应式卡片、搜索、筛选、排序与详情阅读。
+- 🔁 **双向书签操作**：在支持的 X Web 接口下添加 / 移除书签。
+
+### Personal Cloud：需要远程访问时再启用
+
+Cloudflare 不是 Xcollect 的运行依赖，而是一个可选的远程访问层：
+
+```text
+Internet
+   ↓
+Cloudflare Worker
+   ↓
+Capability Probe
+   ├── D1 可用 → D1 Primary
+   └── KV 可用 → KV Fallback
+```
+
+当前 D1 路径支持：
+
+- 批量增量 UPSERT，避免“一条书签一条 D1 query”；
+- X Timeline 收藏顺序持久化；
+- 写入后 D1 read-back 核验；
+- 分类与源数据解耦，重新同步不会随意覆盖已有知识层；
+- 存储状态诊断。
+
+同步与 D1 契约见：[X Bookmark Sync & D1 Persistence Contract](./docs/engineering/SYNC_AND_D1.md)。
+
+---
+
 ## 🧭 X = Exploration
 
-互联网上不同平台提供了不同的“收藏”动作：
+不同网站提供不同按钮：
 
 ```text
 Twitter Bookmark
@@ -44,11 +158,13 @@ Wishlist
    Exploration.Save
 ```
 
-它们表达的是相似的弱未来意图：
+它们背后通常表达的是同一个动作：
 
-> **“这个东西现在看起来有价值，我以后可能会回来。”**
+> **“这个东西现在值得保留，我以后可能会回来。”**
 
-Xcollect 的目标不是帮助你收藏更多，而是让曾经觉得有价值的东西，未来还能被找到、理解、关联并重新行动。
+问题不是收藏不够方便，而是收藏以后经常再也没有回来。
+
+Xcollect 希望把路径做成：
 
 ```text
 Encounter
@@ -66,136 +182,147 @@ Resurface
 Act
 ```
 
-### 🗺️ 路径图
+所以当前的 Twitter/X 只是 **Adapter 01**，不是项目边界。
 
-- ✅ **Phase 0 — Twitter / 𝕏 vertical slice**：书签同步、本地优先存储、AI 分类、二级标签、知识拓扑重整。
-- ⏭️ **Phase 1 — Source-neutral Core**：将 Twitter-specific 数据模型收敛成统一 `ExplorationItem`。
-- ⭐ **Phase 2 — GitHub Stars Adapter**：回答“我当时为什么 Star 它？现在还值得用吗？”
-- 🌐 **Phase 3 — Browser Capture**：Chrome / Chromium Extension、Userscript、右键 Save to Xcollect。
-- 📚 **Phase 4 — Reddit / YouTube / RSS / Hacker News / Podcasts / Email**。
-- 🗺️ **Phase 5 — Places / Wishlist / Travel 等非传统知识型 Exploration**。
-- 🔁 **Long-term — Resurfacing Engine**：把历史探索重新带回当前项目和当前决策上下文。
+完整路线图见：[Xcollect Roadmap](./docs/ROADMAP.md)。
 
-完整设计见 [Xcollect Roadmap](./docs/ROADMAP.md)。
+市场与相邻项目参照见：[Exploration Tools Landscape](./docs/research/EXPLORATION_TOOLS_LANDSCAPE.md)。
 
 ---
 
-## ✨ 核心特性
+## ☁️ 可选：部署成自己的 Personal Cloud
 
-- 🔄 **𝕏 官方书签双向云同步**：通过 Web 凭据直接对接 𝕏 官方 GraphQL API，在看板中实时同步、收藏或一键解除云端书签，告别昂贵的官方企业级 API。
-- 🏡 **本地优先哲学 (Local-First)**：**绝不强求用户搭建个人网站**。无需买域名、无需配置云端，运行 `python local_server.py` 即可在本地硬盘安全存放推文数据，在 localhost 极速浏览。
-- 📦 **多级存储平滑降级 (Storage Cascade)**：
-  - 🥇 **Cloudflare D1 关系型数据库**（默认推荐，支持海量推文极速索引）
-  - 🥈 **Cloudflare KV 键值存储**（100% 免费开箱即用，每日 10 万次读取免建表）
-  - 🥉 **本地单文件存储**（`seed_data.json`，零任何第三方依赖，单机离线可用）
-- 🧠 **可插拔多级 AI 算力体系 (Pluggable AI Matrix)**：
-  - 🥇 **用户自定义大模型**：无缝对接 DeepSeek、OpenAI、本地 Ollama 等任何 OpenAI 兼容 API。
-  - 🥈 **Cloudflare Workers AI**：零配置免费赠送额度（采用 Meta Llama 3.1-8b-instruct-fast / 3.2 矩阵）。
-  - 🥉 **本地关键词规则引擎**：纯正则与高精语义打标，零网络依赖、零延迟、断网亦可 100% 兜底。
-- 🧬 **低扰动知识拓扑重整化 (Topology Renormalization)**：
-  - **日常收藏保持惯性**：新推文严格吸附在现有大类中，提取自由二级标签（`sub_category`），标记为 `projected`，保证看板一级专区不随单条收藏频繁晃动；
-  - **相变周期全局重整**：未固化条目累积达到阈值（如 30 条）或分类密度失衡时，由宏观聚类算法执行分裂/合并，批量固化为 `settled` 状态。
-- 🎨 **Petrol Teal 极客视觉美学**：精心调优的深青暗黑/明亮双主题，卡片悬浮微动效、图片/多视频画廊预览、响应式瀑布流布局。
-- 🛡️ **严格 12-Factor 工程卫生契约**：敏感机密严格存入 `.env`（提供 1:1 脱敏镜像 `.env.example`），解耦参数统一置于 `config.toml`，内置一行冒烟自检 `python local_server.py --check`。
+只有当你希望：
 
----
+- 手机访问；
+- 多设备访问；
+- 绑定自己的域名；
+- 使用 D1 / KV 做服务器端持久化；
 
-## 🚀 极速上手
+才需要继续这一节。
 
-### 1. 克隆项目与配置凭据
+当前 `wrangler.example.jsonc` 是 **Cloudflare + D1 Profile** 的参考模板。
 
-```bash
-git clone https://github.com/epodak/Xcollect.git
-cd Xcollect
-```
+### 1. 安装 Wrangler 依赖
 
-复制敏感凭据契约模板：
-```bash
-cp .env.example .env
-```
-在 `.env` 中填入你的 𝕏 平台 Web 凭据（如何获取见下文 [凭据获取指南](#-x-平台凭据获取指南)）：
-```env
-X_AUTH_TOKEN=你的x_auth_token
-X_CT0=你的x_ct0_csrf_token
-```
-
----
-
-### 2. 方式 A：本地纯 Python 极速运行（推荐初次体验）
-
-无需 Node.js，无需安装庞大的外部依赖，标准 Python 3.10+ 环境即可直接启动：
-
-```bash
-# 执行工程卫生环境冒烟自检
-python local_server.py --check
-
-# 启动本地服务 (默认监听 8089 端口)
-python local_server.py
-```
-打开浏览器访问：`http://localhost:8089` 即可畅享完整看板与实时云端同步功能！
-
----
-
-### 3. 方式 B：Cloudflare Workers + D1 边缘无服务部署 (100% 永久免费)
-
-本项目经过严格的资源优化设计，**完全运行在 Cloudflare 官方免费额度之内，0 运维成本，无需绑定信用卡**：
-
-> [!TIP]
-> **💰 Cloudflare 免费配额深度说明（个人使用充裕度 > 1000 倍）：**
-> - ⚡ **Cloudflare Workers**：每日 **100,000 次免费请求**（个人看板日常访问仅需数十次）。
-> - 🗄️ **Cloudflare D1 数据库**：每日 **5,000,000 次读操作 + 100,000 次写操作**，免费存储高达 **500 MB**（存储上万条推文仅占用数十 MB）。
-> - 🤖 **Cloudflare Workers AI**：每日赠送 **10,000 神经元计算额度**（支持每日自动分类数百篇最新推文）。
-> - 🌐 **全球 CDN 静态资产**：自带全球 Anycast 边缘加速，无限带宽托管。
-> - 💸 **零 API 费用**：直接基于个人 Web 凭据同步书签，彻底告别推特每月 $100+ 的官方昂贵 API。
-
-#### ① 安装依赖
 ```bash
 pnpm install
 ```
 
-#### ② 配置 Cloudflare 与绑定 D1 数据库
+### 2. 创建私有 Wrangler 配置
+
 ```bash
-# 1. 复制配置文件模板为本地私有配置 (wrangler.jsonc 已被 .gitignore 隔离，绝不上库)
 cp wrangler.example.jsonc wrangler.jsonc
-
-# 2. 创建 D1 数据库 (Cloudflare 账号内秒级免费生成，无需信用卡)
-npx wrangler d1 create x-bookmarks
-
-# 3. 将控制台输出中的 database_id 填入本地的 wrangler.jsonc 中：
-# "database_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-
-# 3. 初始化数据库表结构 (本地或远端)
-pnpm run d1:init:local
-pnpm run d1:init:remote
-
-# 4. (可选) 导入预设推文种子数据 (包含通用精选技术 Demo 推文)
-pnpm run d1:seed:local
-pnpm run d1:seed:remote
 ```
 
-#### ③ 本地边缘模拟与正式发布
-```bash
-# 本地模拟 Cloudflare Worker 运行
-pnpm run dev
+### 3. 创建并初始化 D1
 
-# 一键部署至 Cloudflare 生产环境
+```bash
+npx wrangler d1 create x-bookmarks
+```
+
+把返回的 `database_id` 填入你的私有 `wrangler.jsonc`，然后：
+
+```bash
+pnpm run d1:init:remote
+```
+
+### 4. 配置生产 Secret
+
+Cloudflare Worker 不能通过网页运行时安全地写入 Worker Secret。
+
+请使用：
+
+```bash
+npx wrangler secret put X_AUTH_TOKEN
+npx wrangler secret put X_CT0
+```
+
+### 5. 部署
+
+```bash
 pnpm run deploy
 ```
 
+> 没有 D1，也不想配置云端数据库？直接使用 Local Profile 即可。Xcollect 的基础功能不要求你为了运行软件而先学习 Cloudflare。
+
+Cloudflare 的免费 / 付费额度可能变化，因此这里不硬编码具体配额；部署前以 Cloudflare 当前官方规则为准。
+
 ---
 
-## 🔑 𝕏 平台凭据获取指南
+## 🔑 X / Twitter 凭据怎么取？
 
-项目通过模拟官方 Web 端请求实现书签双向同步，仅需两个只读 Cookie 字段：
+在已登录的 `x.com` 浏览器中：
 
-1. 在浏览器中打开并登录 [x.com](https://x.com)。
-2. 按 `F12` 打开开发者工具，切换到 **Application (应用程序)** -> **Cookies** -> `https://x.com`。
-3. 搜索并复制以下两个字段的值：
-   - `auth_token`：你的身份验证令牌。
-   - `ct0`：你的 CSRF 安全令牌。
-4. 将它们粘贴保存至本地 `.env` 文件即可。
+1. 打开开发者工具；
+2. 进入 **Application → Cookies → https://x.com**；
+3. 找到：
+   - `auth_token`
+   - `ct0`
+4. 本地模式填入 `.env`；Cloud Profile 使用 `wrangler secret put`。
 
-> ⚠️ **安全说明**：这两个凭据仅用于本地服务或你私人部署的 Cloudflare Worker 代理向推特发送官方书签查询，`.env` 已被 `.gitignore` 严格忽略，绝对不会提交到公开版本库。
+> ⚠️ **安全说明**
+>
+> `auth_token` 和 `ct0` 是敏感的登录会话凭据，不是“只读 Token”。本项目会用它们执行书签读取以及支持的添加 / 删除操作。不要提交到 Git，不要发给他人，也不要部署到不可信环境。
+
+---
+
+## 💾 数据到底放在哪里？
+
+### Local Profile
+
+```text
+data/
+├── xcollect.json       # 当前用户数据
+├── xcollect.json.bak   # best-effort 上一版本备份
+└── xcollect.json.tmp   # 原子写入过程中的临时文件
+```
+
+`scripts/seed_data.json` 是仓库里的示例 / bootstrap 数据，不再兼任真实用户数据库。
+
+### Personal Cloud
+
+优先级：
+
+```text
+D1
+ ↓ 不可用
+KV
+```
+
+如果没有任何云端持久化能力，建议使用 Local Profile，而不是把 Cloudflare 变成最低使用门槛。
+
+---
+
+## 🧠 AI 是增强项，不是依赖
+
+默认情况下，没有任何 AI Key 也可以运行。
+
+分类能力按可用条件增强：
+
+```text
+自定义 OpenAI-compatible API
+        ↓ 不可用
+Cloudflare Workers AI（Cloud Profile）
+        ↓ 不可用
+本地规则引擎
+```
+
+同步阶段不会为了每一条新收藏阻塞式调用远程大模型；AI 深分类是独立生命周期。
+
+---
+
+## 🗺️ Roadmap
+
+- ✅ **Phase 0 — X / Twitter vertical slice**
+- ⏭️ **Phase 1 — Source-neutral `ExplorationItem` Core**
+- ⭐ **Phase 2 — GitHub Stars Adapter**
+- 🌐 **Phase 3 — Browser Capture / Extension / Userscript**
+- 📚 **Phase 4 — Reddit / YouTube / RSS / Hacker News / Podcasts / Email**
+- 🗺️ **Phase 5 — Places / Wishlist / Travel**
+- 🔁 **Long-term — Resurfacing + Personal Agent Decision Context**
+
+详见：[docs/ROADMAP.md](./docs/ROADMAP.md)。
 
 ---
 
@@ -203,36 +330,49 @@ pnpm run deploy
 
 ```text
 Xcollect/
-├── .env.example          # 敏感凭据脱敏契约模板 (1:1 影子镜像)
+├── .env.example          # 敏感凭据脱敏契约模板 (1:1 Key Parity，值默认留空)
 ├── config.toml           # 集中解耦配置文件 (端口、运行参数等)
-├── wrangler.jsonc        # Cloudflare Python Workers 配置文件
-├── package.json          # pnpm 包管理器与脚本入口
-├── local_server.py       # 本地独立全功能 Python 服务 (支持 --check 自验)
+├── wrangler.example.jsonc# 可选 Personal Cloud / D1 Profile 配置模板
+├── package.json          # pnpm 包管理器与 Cloudflare 辅助脚本入口
+├── local_server.py       # Local Profile 独立全功能 Python 服务 (支持 --check 自验)
+├── data/                 # 本地运行时私有数据目录（自动创建，已 gitignore）
+│   └── xcollect.json     # Local Profile 主数据库，原子写入 + .bak
 ├── docs/
 │   ├── ROADMAP.md        # Exploration 平台长期路径图
+│   ├── engineering/
+│   │   ├── DEPLOYMENT_PROFILES.md # Local / Personal Cloud 一等公民部署模型
+│   │   └── SYNC_AND_D1.md          # X 同步与 D1 持久化工程契约
 │   └── research/
 │       └── EXPLORATION_TOOLS_LANDSCAPE.md  # 市场、竞品与相邻开源方案参照
 ├── src/
-│   └── entry.py          # Cloudflare Python Worker 边缘业务网关与 D1 交互入口
+│   ├── entry.py          # 可选 Cloudflare Python Worker 边缘入口
+│   ├── twitter.py        # Cloud Profile X Adapter
+│   ├── storage.py        # D1 / KV 存储与能力降级
+│   └── classifier.py     # 分类能力层
 ├── public/               # 前端静态看板资产 (Petrol Teal 视觉系统)
 │   ├── index.html        # 主看板 SPA 页面
 │   ├── css/              # 模块化样式 (cards, layout, modal, theme)
 │   └── js/               # 模块化逻辑 (api, app, render)
 └── scripts/
     ├── schema.sql        # Cloudflare D1 数据库 DDL 表结构
-    ├── seed_data.json    # 精选预置技术推文种子数据
-    └── seed_d1.py        # D1 种子数据一键迁移与 SQL 生成工具
+    ├── seed_data.json    # 仓库示例 / bootstrap 数据，不是用户实时数据库
+    └── seed_d1.py        # 可选 D1 种子数据迁移与 SQL 生成工具
 ```
 
 ---
 
-## 🤝 参与贡献与开发契约
+## 🧱 设计原则
 
-本项目严格遵循 [Agent Relay Hygiene (工程卫生契约)](./AGENTS.md)：
-1. **单一包管理器**：严格使用 `pnpm`，禁止使用 `npm` 或 `yarn`。
-2. **12-Factor 双轨分工**：敏感机密严格收敛在 `.env`，非敏感参数统一由 `config.toml` 解耦。
-3. **闭环自验**：每次提交修改必须保证 `python local_server.py --check` 通过。
-4. **Source-neutral direction**：新增能力优先判断属于 Xcollect Core 还是某个 source adapter，避免把核心继续耦合到 Twitter / 𝕏。
+1. **Local First**：基础功能必须在 Python + JSON 环境下成立。
+2. **Progressive Enhancement**：D1、KV、Workers AI、域名都是增强能力，不是门槛。
+3. **Source ≠ Storage**：Twitter/GitHub/Browser 是 Acquisition Adapter；JSON/KV/D1 是 Storage Profile，两个轴不能耦合。
+4. **Seed ≠ User Data**：仓库示例数据不能兼任用户可变数据库。
+5. **Secrets stay private**：本地进 `.env`，Cloudflare 进 Worker Secrets。
+6. **AI optional**：没有 AI Key 也能完成基础收藏、检索和规则分类。
+7. **Closed-loop verification**：同步、持久化、回读必须能独立诊断。
+8. **Source-neutral direction**：新增能力优先判断属于 Core 还是某个 Adapter。
+
+协作约束见：[AGENTS.md](./AGENTS.md)。
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "x-collect",
   "version": "1.0.0",
-  "description": "Twitter / X 优质推文聚合知识看板 · X 书签双向云同步中枢",
+  "description": "Xcollect · Local-first Exploration Collector，当前从 X / Twitter 书签开始",
   "license": "MIT",
   "packageManager": "pnpm@10.17.1",
   "scripts": {
@@ -22,6 +22,9 @@
     "wrangler": "^3.114.0"
   },
   "keywords": [
+    "exploration",
+    "local-first",
+    "bookmark-manager",
     "twitter",
     "x-bookmarks",
     "cloudflare-workers",
