@@ -399,6 +399,7 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
         "view_counts_everywhere_api_enabled": True,
         "longform_notetweets_consumption_enabled": True,
         "responsive_web_twitter_article_tweet_consumption_enabled": True,
+        "articles_preview_enabled": True,
         "longform_notetweets_rich_text_read_enabled": True,
         "longform_notetweets_inline_media_enabled": True,
         "responsive_web_enhance_cards_enabled": False,
@@ -422,6 +423,10 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
         params = {
             "variables": json.dumps(variables, separators=(",", ":")),
             "features": json.dumps(features, separators=(",", ":")),
+            "fieldToggles": json.dumps({
+                "withArticleRichContentState": True,
+                "withArticlePlainText": True,
+            }, separators=(",", ":")),
         }
 
         timeline = None
