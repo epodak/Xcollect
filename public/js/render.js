@@ -50,11 +50,9 @@ function cleanSnippet(snippet) {
 
 function cleanBodyRaw(md) {
   if (!md) return md;
-  let lines = md.split("\n");
-  if (lines.length > 0 && lines[0].startsWith("# ")) {
-    lines.shift();
-  }
-  return lines.join("\n").replace(/^>\s*\*\*领域分类\*\*[:：]\s*`?【[^】]*】`?\s*\n?/m, "").trim();
+  return String(md)
+    .replace(/^>\s*\*\*领域分类\*\*[:：]\s*`?【[^】]*】`?\s*\n?/m, "")
+    .trim();
 }
 
 function getVideoSource(video) {
@@ -122,7 +120,7 @@ function generateTweetCardHtml(item, idx = 0) {
   } else if (hasImages) {
     contentHtml = `
       <div class="card-snippet media-mode" onclick="openDetail('${tweetId}')">
-        ${cleanSnippet(item.snippet) || "暂无正文摘要"}
+        ${previewText}
       </div>
       <div class="card-media-preview card-media-image" onclick="openDetail('${tweetId}')">
         <img src="${escapeHtml(primaryImageUrl)}" alt="推文配图" loading="lazy">
@@ -153,14 +151,14 @@ function generateTweetCardHtml(item, idx = 0) {
                 : `<span class="author-avatar-fallback">${(item.author || item.username || "?").charAt(0).toUpperCase()}</span>`}
             </div>
             <div class="author-meta">
-              <div class="author-name" title="${item.author || item.username}">${escapeHtml(item.author || item.username)}</div>
+              <div class="author-name" title="${escapeHtml(item.author || item.username)}">${escapeHtml(item.author || item.username)}</div>
               <div class="author-handle">@${escapeHtml(item.username || "anon")}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
             </div>
           </div>
           ${subcatBadge}
         </div>
 
-        <div class="card-title" onclick="openDetail('${tweetId}')" title="${cleanTitle(item.title) || item.filename}">
+        <div class="card-title" onclick="openDetail('${tweetId}')" title="${escapeHtml(cleanTitle(item.title) || item.filename)}">
           ${escapeHtml(cleanTitle(item.title) || item.filename)}
         </div>
 
