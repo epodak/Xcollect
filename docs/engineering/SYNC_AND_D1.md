@@ -133,7 +133,41 @@ For Cron runs, the scheduled handler then raises so Cloudflare Observability rec
 `/api/tweets` is intentionally returned with `Cache-Control: no-store`.
 Private bookmark state must not use public CDN stale-while-revalidate caching.
 
-## 7. D1 upsert invariant
+## 7. X-side unbookmark reconciliation invariant
+
+X bookmarks are a set with both positive and negative changes.
+
+- **Positive event:** an ID appears on X that is not in the repository → UPSERT/add.
+- **Negative event:** an ID exists in the repository but no longer exists in X Bookmarks → remove locally.
+
+A partial incremental fetch is never sufficient evidence for a negative event.
+
+Deletion is allowed only after a full scan reaches the natural end of the X Bookmarks timeline:
+
+```text
+full_scan = true
+AND scan_complete = true
+        ↓
+remote_ids = authoritative set
+        ↓
+removed_ids = local_ids - remote_ids
+        ↓
+delete removed_ids
+```
+
+If `max_sync_pages` truncates the scan, `scan_complete=false` and **no missing ID is deleted**.
+
+Cloud Profile performs a full reconciliation periodically (default every 6 hours) while keeping normal Cron runs incremental. Manual **立即同步** forces a full reconciliation.
+
+The direct UI “移出 X 收藏” path remains separate and immediate:
+
+```text
+DeleteBookmark on X succeeds
+        ↓
+delete the same ID from the selected local/cloud repository
+```
+
+## 8. D1 upsert invariant
 
 Full X sync is idempotent.
 
@@ -146,7 +180,7 @@ On an existing tweet ID:
 This prevents every full sync from degrading previously AI-classified items back
 to `projected`.
 
-## 8. First-deploy / recovery checklist
+## 9. First-deploy / recovery checklist
 
 ```bash
 pnpm run d1:init:remote
@@ -176,7 +210,7 @@ Expected invariants:
 - `d1_row_count` is non-null and agrees with persisted data
 - repeated sync does not erase settled classifications
 
-## 9. Failure codes
+## 10. Failure codes
 
 ### `X_CREDENTIALS_MISSING`
 
@@ -201,7 +235,7 @@ X retrieval completed but D1/KV persistence did not. Inspect
 A missing-table/schema error generally means the remote D1 schema has not yet
 been initialized with `pnpm run d1:init:remote`.
 
-## 10. Smoke gate
+## 11. Smoke gate
 
 Before deployment:
 

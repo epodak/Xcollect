@@ -100,7 +100,10 @@ async function refreshSyncStatusNotice() {
         ? "后台定时"
         : "手动";
       const count = status.new_count != null ? ` · 新增 ${status.new_count}` : "";
-      notice.innerHTML = `✅ <b>${trigger}同步正常</b><br>最近成功：${when}${count}<br><span style="opacity:.8">页面只读取已持久化数据；“立即同步”仅用于强制刷新或排障。</span>`;
+      const removed = Number(status.removed_count || 0);
+      const removedText = removed > 0 ? ` · 移除 ${removed}` : "";
+      const mode = status.sync_mode === "reconcile" ? "完整对账" : "增量";
+      notice.innerHTML = `✅ <b>${trigger}同步正常 · ${mode}</b><br>最近成功：${when}${count}${removedText}<br><span style="opacity:.8">页面只读取已持久化数据；“立即同步”会强制完整对账。</span>`;
       return;
     }
 
@@ -605,7 +608,9 @@ function setupEventListeners() {
               : (result.storage_status && result.storage_status.d1_row_count != null
                 ? result.storage_status.d1_row_count
                 : tweets.length);
-            showToast(`同步完成：X 拉取 ${result.pulled_count || result.count || 0}，${backend} 新增 ${storedNew}，总计 ${storedTotal}`);
+            const removed = Number(result.removed_count || 0);
+            const removedText = removed > 0 ? `，移除 ${removed} 条 X 已取消收藏` : "";
+            showToast(`同步完成：X 拉取 ${result.pulled_count || result.count || 0}，${backend} 新增 ${storedNew}${removedText}，总计 ${storedTotal}`);
             await refreshSyncStatusNotice();
           } else {
             showToast(result.message || result.error || "从 X 拉取书签失败", false);

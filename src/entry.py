@@ -99,7 +99,12 @@ async def on_fetch(request, env):
         # 手动同步只是一个触发器。真正同步逻辑位于 sync_service，
         # 与 Cloudflare Cron 共用，避免“后台一套、按钮一套”。
         if path == "/api/bookmarks/sync" and method in ("GET", "POST"):
-            status_code, payload = await perform_cloud_sync(env, trigger="manual")
+            # “立即同步”是 force-sync：做完整集合对账，因此也会发现 X 端取消收藏。
+            status_code, payload = await perform_cloud_sync(
+                env,
+                trigger="manual",
+                force_reconcile=True,
+            )
             return json_resp(payload, status_code)
 
         if path == "/api/tweets":

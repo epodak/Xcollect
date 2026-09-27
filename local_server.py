@@ -368,8 +368,8 @@ def resolve_bookmark_query_ids_local():
     return result
 
 
-def fetch_remote_bookmarks(max_pages=None, known_ids=None):
-    """Local Profile 增量拉取 X Bookmarks；同步阶段不执行远程 AI 调用。"""
+def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
+    """Local Profile 拉取 X Bookmarks；full_scan=True 时用于安全删除对账。"""
     if max_pages is None:
         max_pages = CONFIG.max_sync_pages
     known_ids = {str(x) for x in (known_ids or set()) if x}
@@ -379,11 +379,11 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None):
     ct0 = creds.get("ct0")
 
     if not auth_token or not ct0:
-        return False, "请先配置 X 账户凭证", []
+        return False, "请先配置 X 账户凭证", [], {"scan_complete": False}
 
     query_ids = resolve_bookmark_query_ids_local()
     if not query_ids:
-        return False, "没有可用的 X Bookmarks queryId", []
+        return False, "没有可用的 X Bookmarks queryId", [], {"scan_complete": False}
 
     features = {
         "graphql_timeline_v2_bookmark_timeline": True,
@@ -411,6 +411,8 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None):
     page_count = 0
     selected_query_id = None
     failures = []
+    stopped_on_known_page = False
+    reached_timeline_end = False
 
     for _page in range(max_pages):
         page_count += 1
@@ -452,14 +454,14 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None):
                 break
             except urllib.error.HTTPError as e:
                 if e.code in (401, 403):
-                    return False, f"X 凭证失效或 CSRF 错误 (HTTP {e.code})，请更新凭证", all_tweets
+                    return False, f"X 凭证失效或 CSRF 错误 (HTTP {e.code})，请更新凭证", all_tweets, {"scan_complete": False}
                 failures.append(f"{query_id}: HTTP {e.code}")
             except Exception as e:
                 failures.append(f"{query_id}: {str(e)[:120]}")
 
         if timeline is None:
             detail = " | ".join(failures[-4:]) or "无可用响应"
-            return False, f"X Bookmarks 协议不可用：{detail}", all_tweets
+            return False, f"X Bookmarks 协议不可用：{detail}", all_tweets, {"scan_complete": False}
 
         page_seen_count = 0
         page_unknown_count = 0
@@ -570,10 +572,12 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None):
                     "classify_status": "projected",
                 })
 
-        # 已有本地数据时，一整页全部命中 known_ids 即可停止继续翻旧历史。
-        if known_ids and page_unknown_count == 0:
+        # 增量模式可在整页已知时停止；完整对账必须翻到时间线自然结束。
+        if not full_scan and known_ids and page_unknown_count == 0:
+            stopped_on_known_page = True
             break
         if not next_cursor or next_cursor == cursor or page_seen_count == 0:
+            reached_timeline_end = True
             break
         cursor = next_cursor
 
@@ -586,6 +590,12 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None):
         f"成功同步 {page_count} 页，共读取 {len(all_tweets)} 篇书签"
         + (f"（queryId={selected_query_id}）" if selected_query_id else ""),
         all_tweets,
+        {
+            "scan_mode": "full" if full_scan else "incremental",
+            "scan_complete": bool(reached_timeline_end),
+            "stopped_on_known_page": bool(stopped_on_known_page),
+            "truncated_by_max_pages": bool(full_scan and not reached_timeline_end),
+        },
     )
 
 
@@ -594,12 +604,18 @@ def sync_local_bookmarks():
     existing = load_local_tweets()
     known_ids = {str(item.get("id")) for item in existing if item.get("id")}
 
-    success, msg, remote_tweets = fetch_remote_bookmarks(
+    success, msg, remote_tweets, fetch_meta = fetch_remote_bookmarks(
         max_pages=CONFIG.max_sync_pages,
         known_ids=known_ids,
+        full_scan=True,
     )
     if not success:
-        return 400, {"success": False, "message": msg, "storage_profile": "local"}
+        return 400, {
+            "success": False,
+            "message": msg,
+            "storage_profile": "local",
+            "fetch": fetch_meta,
+        }
 
     existing_map = {str(item.get("id")): item for item in existing if item.get("id")}
     remote_ordered = []
@@ -627,21 +643,48 @@ def sync_local_bookmarks():
         merged["bookmark_position"] = position
         remote_ordered.append(merged)
 
-    tail = [
-        item for item in existing
-        if str(item.get("id", "")) not in remote_ids
-    ]
+    if fetch_meta.get("scan_complete"):
+        # X 完整书签集合是本轮权威真值：本地存在但 X 不存在的条目就是已取消收藏。
+        removed_ids = [
+            str(item.get("id"))
+            for item in existing
+            if str(item.get("id", "")) not in remote_ids
+        ]
+        tail = []
+    else:
+        # 未翻到时间线末尾时绝不根据“缺失”删除，避免 max_pages 导致误删。
+        removed_ids = []
+        tail = [
+            item for item in existing
+            if str(item.get("id", "")) not in remote_ids
+        ]
+
     for offset, item in enumerate(tail, start=len(remote_ordered)):
         item["bookmark_position"] = offset
 
     combined_list = remote_ordered + tail
     save_local_tweets(combined_list)
 
+    removed_count = len(removed_ids)
+    reconcile_msg = (
+        f"；移除 {removed_count} 条 X 已取消收藏"
+        if fetch_meta.get("scan_complete")
+        else "；完整对账未完成，未执行删除"
+    )
+
     return 200, {
         "success": True,
-        "message": f"{msg}；Local JSON 新增 {new_add_count} 篇，总计 {len(combined_list)} 篇",
+        "message": f"{msg}；Local JSON 新增 {new_add_count} 篇{reconcile_msg}；总计 {len(combined_list)} 篇",
         "pulled_count": len(remote_tweets),
         "new_count": new_add_count,
+        "removed_count": removed_count,
+        "reconciliation": {
+            "requested": True,
+            "complete": bool(fetch_meta.get("scan_complete")),
+            "removed_count": removed_count,
+            "removed_ids": removed_ids[:50],
+        },
+        "fetch": fetch_meta,
         "count": len(combined_list),
         "storage_profile": "local",
         "data": remote_tweets,

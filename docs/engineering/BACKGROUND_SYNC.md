@@ -70,7 +70,35 @@ Cron Triggers run on UTC, but an every-N-minutes cadence is timezone-independent
 
 The interval is intentionally conservative because Xcollect currently consumes X's Web GraphQL surface rather than a stable paid API contract. Incremental early-stop makes each steady-state run small.
 
-Users can choose a slower cadence in their private `wrangler.jsonc`.
+### Positive vs negative events
+
+Incremental sync is excellent at discovering **positive events**: a bookmark ID appears that the repository has never seen.
+
+It cannot safely prove a **negative event** from a partial page: an old ID that is absent from the first 50 results may simply be on page 2, not deleted.
+
+Therefore Cloud Profile uses a dual-speed policy:
+
+```text
+every Cron tick
+   ↓
+incremental scan
+   ↓
+fast discovery of new bookmarks
+
+every reconcile_interval_hours (default 6h)
+   ↓
+full scan to natural X timeline end
+   ↓
+authoritative set difference
+   ↓
+remove IDs no longer bookmarked on X
+```
+
+The manual **立即同步** control always requests a full reconciliation, so it is suitable for validating an X-side unbookmark immediately.
+
+A missing ID is deleted **only** when `scan_complete == true`. If the scan hits `max_sync_pages` before the X timeline ends, Xcollect records the incomplete reconciliation and performs no deletion.
+
+Users can choose a slower Cron cadence in their private `wrangler.jsonc`, and can tune `sync.reconcile_interval_hours` in `config.toml`.
 
 ## Cloudflare configuration
 

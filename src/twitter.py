@@ -211,6 +211,7 @@ async def fetch_remote_bookmarks(
     existing_cats: list[str],
     env,
     known_ids: set[str] | None = None,
+    full_scan: bool = False,
 ):
     """游标连续翻页拉取书签；同步阶段不执行逐条远程 AI 调用。"""
     if js_fetch is None:
@@ -228,6 +229,8 @@ async def fetch_remote_bookmarks(
     pages_fetched = 0
     query_failures = []
     discovered_new_count = 0
+    stopped_on_known_page = False
+    reached_timeline_end = False
 
     for _page in range(max_pages):
         timeline = None
@@ -365,11 +368,13 @@ async def fetch_remote_bookmarks(
                     "classify_status": "projected",
                 })
 
-        # 增量停止条件：已有 D1 数据时，如果这一整页都已存在，
-        # 后面的更老页面不会包含“新收藏”，无需继续消耗 X / D1 配额。
-        if known_ids and page_unknown_count == 0:
+        # 增量模式只关心“新增正事件”：遇到整页已知数据即可停止。
+        # full_scan 用于 reconciliation，必须继续翻到时间线自然结束，才能安全判断删除。
+        if not full_scan and known_ids and page_unknown_count == 0:
+            stopped_on_known_page = True
             break
         if not next_cursor or next_cursor == cursor or page_new_count == 0:
+            reached_timeline_end = True
             break
         cursor = next_cursor
 
@@ -387,7 +392,10 @@ async def fetch_remote_bookmarks(
         "pulled_count": len(pulled),
         "known_before_count": len(known_ids),
         "discovered_new_count": discovered_new_count,
-        "incremental_stop": bool(known_ids),
+        "scan_mode": "full" if full_scan else "incremental",
+        "scan_complete": bool(reached_timeline_end),
+        "stopped_on_known_page": bool(stopped_on_known_page),
+        "truncated_by_max_pages": bool(full_scan and not reached_timeline_end),
         "classification": "rule_projection",
         "query_failures": query_failures[-4:],
     }

@@ -23,6 +23,10 @@ max_retries = 3
 cache_seconds = 60
 max_sync_pages = 25
 
+[sync]
+# Cloud Profile: 高频增量同步之外，每隔多久做一次完整集合对账，用于发现 X 端取消收藏。
+reconcile_interval_hours = 6
+
 [features]
 enable_cloud_sync = true
 enable_offline_cache = true

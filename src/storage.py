@@ -109,6 +109,22 @@ async def _load_bookmark_order(env) -> list[str]:
         return []
 
 
+async def _save_bookmark_order(env, ordered_ids: list[str]):
+    """D1 Profile 保存 X 当前权威收藏顺序。KV 直接使用列表顺序，不需要额外元数据。"""
+    if not hasattr(env, "DB"):
+        return
+    await env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS meta_kv (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)"
+    ).run()
+    await env.DB.prepare(
+        "INSERT INTO meta_kv (key, value, updated_at) VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    ).bind(
+        "x_bookmark_order",
+        json.dumps([str(x) for x in ordered_ids if x], ensure_ascii=False),
+    ).run()
+
+
 async def get_known_tweet_ids(env) -> set[str]:
     """读取当前主存储已有 ID。
 
@@ -636,29 +652,98 @@ async def get_sync_status(env) -> dict:
 
 
 async def delete_tweet_from_storage(env, tweet_id: str):
-    """从 D1 数据库与 KV 存储中同步删除推文记录。"""
-    # 1. 从 D1 删除
+    """删除当前主存储中的单条收藏。
+
+    用于“网页点击移除”路径：先在 X DeleteBookmark 成功，再删除本地/云端镜像。
+    D1 与 KV 是互斥主存储，不做双写。
+    """
+    tweet_id = str(tweet_id)
+
     if hasattr(env, "DB"):
         try:
-            stmt = env.DB.prepare("DELETE FROM tweets WHERE id = ?").bind(str(tweet_id))
-            await stmt.run()
-        except Exception as d_err:
-            print("D1 删除推文同步异常:", str(d_err))
+            await env.DB.prepare("DELETE FROM tweets WHERE id = ?").bind(tweet_id).run()
+            order = await _load_bookmark_order(env)
+            if tweet_id in order:
+                await _save_bookmark_order(env, [x for x in order if x != tweet_id])
+            invalidate_cache()
+            return True
+        except Exception as err:
+            print("D1 删除推文异常:", str(err))
+            return False
 
-    # 2. 从 KV 删除
     kv = get_kv_binding(env)
     if kv:
         try:
             raw = await kv.get("tweets:all")
-            if raw:
-                items = json.loads(raw)
-                filtered = [t for t in items if str(t.get("id")) != str(tweet_id)]
-                if len(filtered) != len(items):
-                    await kv.put("tweets:all", json.dumps(filtered, ensure_ascii=False))
-        except Exception as k_err:
-            print("KV 删除推文同步异常:", str(k_err))
+            items = json.loads(raw) if raw else []
+            if not isinstance(items, list):
+                items = []
+            filtered = [t for t in items if str(t.get("id")) != tweet_id]
+            if len(filtered) != len(items):
+                await kv.put("tweets:all", json.dumps(filtered, ensure_ascii=False))
+            invalidate_cache()
+            return True
+        except Exception as err:
+            print("KV 删除推文异常:", str(err))
+            return False
 
-    invalidate_cache()
+    return False
+
+
+async def reconcile_removed_bookmarks(env, authoritative_order: list[str]) -> dict:
+    """用一次完整 X Bookmarks 快照对账“负事件”（X 端取消收藏）。
+
+    只有调用方确认 full scan 已自然到达时间线末尾时才允许调用。
+    authoritative_order 即 X 当前完整书签 ID 顺序。
+    """
+    authoritative_order = [str(x) for x in authoritative_order if x]
+    authoritative_set = set(authoritative_order)
+    result = {
+        "removed_count": 0,
+        "removed_ids": [],
+        "backend": "d1" if hasattr(env, "DB") else ("kv" if get_kv_binding(env) else "none"),
+    }
+
+    if hasattr(env, "DB"):
+        existing = await get_known_tweet_ids(env)
+        removed = sorted(existing - authoritative_set)
+        if removed:
+            # ID payload 很小；json_each 保持一次/少量 SQL，而不是逐条 DELETE。
+            for chunk in _chunk_records([{"id": x} for x in removed], max_bytes=200_000):
+                ids = [item["id"] for item in chunk]
+                await env.DB.prepare(
+                    "DELETE FROM tweets WHERE id IN (SELECT value FROM json_each(?))"
+                ).bind(json.dumps(ids)).run()
+        await _save_bookmark_order(env, authoritative_order)
+        result["removed_count"] = len(removed)
+        result["removed_ids"] = removed[:50]
+        invalidate_cache()
+        return result
+
+    kv = get_kv_binding(env)
+    if kv:
+        raw = await kv.get("tweets:all")
+        items = json.loads(raw) if raw else []
+        if not isinstance(items, list):
+            items = []
+        existing_map = {
+            str(item.get("id")): item
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        }
+        removed = sorted(set(existing_map) - authoritative_set)
+        reconciled = [
+            existing_map[tweet_id]
+            for tweet_id in authoritative_order
+            if tweet_id in existing_map
+        ]
+        await kv.put("tweets:all", json.dumps(reconciled, ensure_ascii=False))
+        result["removed_count"] = len(removed)
+        result["removed_ids"] = removed[:50]
+        invalidate_cache()
+        return result
+
+    return result
 
 
 async def get_topology_status(env) -> dict:

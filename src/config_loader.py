@@ -127,6 +127,9 @@ class AppConfig:
         self.cache_seconds = int(runtime_cfg.get("cache_seconds", 60))
         self.max_sync_pages = int(runtime_cfg.get("max_sync_pages", 25))
 
+        sync_cfg = parsed.get("sync", {})
+        self.reconcile_interval_hours = float(sync_cfg.get("reconcile_interval_hours", 6))
+
         # Twitter Web API 协议常量 (严格来自 config.toml 单一真源)
         twitter_cfg = parsed.get("twitter", {})
         self.twitter_bearer = str(twitter_cfg.get("bearer_token", ""))

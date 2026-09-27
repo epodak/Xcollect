@@ -36,3 +36,11 @@
    - HTTP, Cron and future Queue/Workflow triggers must share one application sync service.
    - D1 and KV are alternative authoritative backends; never silently dual-write or create split-brain state.
    - See `docs/engineering/BACKGROUND_SYNC.md`.
+
+
+7. **Negative-event reconciliation invariant.**
+   - Incremental source polling may add/update items but must not infer deletions from a partial page.
+   - Source-side removals are applied only after a complete authoritative scan reaches the natural source timeline end.
+   - If pagination is truncated by `max_sync_pages`, missing IDs must be preserved.
+   - Manual force-sync may request full reconciliation; normal cloud Cron remains mostly incremental with periodic full reconciliation.
+   - Direct write-back deletion remains immediate: delete on source first, then delete the same item from the selected repository.

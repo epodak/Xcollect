@@ -9,7 +9,7 @@ Trigger-agnostic by design:
 All triggers call the same application service so the sync semantics cannot drift.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config_loader import CONFIG
 from classifier import get_existing_categories
@@ -19,6 +19,7 @@ from storage import (
     get_storage_status,
     get_sync_status,
     load_tweets,
+    reconcile_removed_bookmarks,
     save_sync_status,
     save_tweets,
 )
@@ -26,6 +27,25 @@ from storage import (
 
 def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_iso(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _reconciliation_due(previous: dict) -> bool:
+    last_attempt = _parse_iso(previous.get("last_reconcile_attempt_at"))
+    if last_attempt is None:
+        return True
+    return (
+        datetime.now(timezone.utc) - last_attempt
+        >= timedelta(hours=float(CONFIG.reconcile_interval_hours))
+    )
 
 
 async def _record_failure(env, previous: dict, trigger: str, code: str, message: str, extra=None):
@@ -37,6 +57,8 @@ async def _record_failure(env, previous: dict, trigger: str, code: str, message:
         "message": message,
         "last_attempt_at": _utc_now_iso(),
         "last_success_at": previous.get("last_success_at"),
+        "last_reconcile_attempt_at": previous.get("last_reconcile_attempt_at"),
+        "last_reconcile_success_at": previous.get("last_reconcile_success_at"),
     }
     if extra:
         payload.update(extra)
@@ -44,7 +66,7 @@ async def _record_failure(env, previous: dict, trigger: str, code: str, message:
     return payload
 
 
-async def perform_cloud_sync(env, trigger: str = "manual"):
+async def perform_cloud_sync(env, trigger: str = "manual", force_reconcile: bool = False):
     """Run one complete X -> selected cloud storage -> read-back transaction.
 
     Returns:
@@ -52,6 +74,7 @@ async def perform_cloud_sync(env, trigger: str = "manual"):
     """
     previous = await get_sync_status(env)
     started_at = _utc_now_iso()
+    full_scan = bool(force_reconcile or _reconciliation_due(previous))
 
     await save_sync_status(env, {
         "success": True,
@@ -60,7 +83,10 @@ async def perform_cloud_sync(env, trigger: str = "manual"):
         "started_at": started_at,
         "last_attempt_at": started_at,
         "last_success_at": previous.get("last_success_at"),
-        "message": "同步进行中",
+        "last_reconcile_attempt_at": previous.get("last_reconcile_attempt_at"),
+        "last_reconcile_success_at": previous.get("last_reconcile_success_at"),
+        "sync_mode": "reconcile" if full_scan else "incremental",
+        "message": "完整对账进行中" if full_scan else "增量同步进行中",
     })
 
     auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
@@ -96,6 +122,7 @@ async def perform_cloud_sync(env, trigger: str = "manual"):
             existing_cats,
             env,
             known_ids=known_ids,
+            full_scan=full_scan,
         )
     except Exception as sync_err:
         payload = await _record_failure(
@@ -125,6 +152,33 @@ async def perform_cloud_sync(env, trigger: str = "manual"):
             },
         )
         return 500, payload
+
+    reconciliation = {
+        "requested": full_scan,
+        "complete": False,
+        "removed_count": 0,
+        "removed_ids": [],
+    }
+    reconcile_attempt_at = previous.get("last_reconcile_attempt_at")
+    reconcile_success_at = previous.get("last_reconcile_success_at")
+
+    if full_scan:
+        reconcile_attempt_at = _utc_now_iso()
+        if fetch_meta.get("scan_complete"):
+            authoritative_order = [
+                str(item.get("id"))
+                for item in pulled
+                if item.get("id")
+            ]
+            reconciliation.update(
+                await reconcile_removed_bookmarks(env, authoritative_order)
+            )
+            reconciliation["complete"] = True
+            reconcile_success_at = reconcile_attempt_at
+        else:
+            reconciliation["warning"] = (
+                "完整对账未到达 X Bookmarks 时间线末尾；为避免误删，本轮不处理缺失 ID。"
+            )
 
     # Read back through the same repository path consumed by the UI.
     readback = await load_tweets(env, bypass_cache=True)
@@ -164,17 +218,29 @@ async def perform_cloud_sync(env, trigger: str = "manual"):
         return 500, payload
 
     completed_at = _utc_now_iso()
+    removed_count = int(reconciliation.get("removed_count", 0) or 0)
+    reconcile_suffix = ""
+    if full_scan and reconciliation.get("complete"):
+        reconcile_suffix = f"；完整对账移除 {removed_count} 条 X 已取消收藏"
+    elif full_scan:
+        reconcile_suffix = "；完整对账未完成，未执行删除"
+
     payload = {
         "success": True,
         "state": "success",
         "trigger": trigger,
+        "sync_mode": "reconcile" if full_scan else "incremental",
         "started_at": started_at,
         "completed_at": completed_at,
         "last_attempt_at": completed_at,
         "last_success_at": completed_at,
-        "message": f"X 拉取 {len(pulled)} 条；{storage_msg}",
+        "last_reconcile_attempt_at": reconcile_attempt_at,
+        "last_reconcile_success_at": reconcile_success_at,
+        "message": f"X 拉取 {len(pulled)} 条；{storage_msg}{reconcile_suffix}",
         "pulled_count": len(pulled),
         "new_count": fetch_meta.get("discovered_new_count", storage_meta.get("d1_written", 0)),
+        "removed_count": removed_count,
+        "reconciliation": reconciliation,
         "fetch": fetch_meta,
         "storage": storage_meta,
         "storage_status": storage_status,
