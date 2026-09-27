@@ -357,33 +357,165 @@ function closeModal() {
   window.currentOpenTweet = null;
 }
 
-// 简易 Markdown 解析器
-function parseMarkdownToHtml(md, images, videos) {
-  if (!md) return "<p>暂无内容</p>";
-  let html = md
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-    .replace(/\*(.*)\*/gim, '<em>$1</em>')
-    .replace(/`([^`]+)`/gim, '<code style="background:rgb(var(--c-sunken));padding:2px 6px;border-radius:4px;color:rgb(var(--c-brand-bright));">$1</code>')
-    .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/gim, '<div style="margin-top:1.2rem;border-radius:8px;overflow:hidden;border:1px solid rgb(var(--c-line));"><img src="$2" alt="$1" style="width:100%;display:block;border-radius:8px;" loading="lazy" referrerpolicy="no-referrer"></div>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank" style="color:rgb(var(--c-brand));">$1</a>')
-    .replace(/\n\n/gim, '<br><br>');
+// Canonical Markdown renderer：先转义源文本，再恢复有限、安全的 Markdown 语义。
+function renderInlineMarkdown(text) {
+  const tokens = [];
+  const stash = (html) => {
+    const marker = `@@XCOLLECT_TOKEN_${tokens.length}@@`;
+    tokens.push(html);
+    return marker;
+  };
 
-  if (videos && videos.length > 0) {
-    videos.forEach(vUrl => {
-      html += `<div style="margin-top:1.5rem;border-radius:10px;overflow:hidden;background:#000;border:1px solid rgb(var(--c-line));"><video src="${vUrl}" controls playsinline preload="auto" style="width:100%;max-height:480px;display:block;outline:none;"></video></div>`;
-    });
-  } else if (images && images.length > 0) {
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:0.75rem;margin-top:1.5rem;">';
-    images.forEach(imgUrl => {
-      html += `<div style="border-radius:8px;overflow:hidden;border:1px solid rgb(var(--c-line));"><img src="${imgUrl}" style="width:100%;height:220px;object-fit:cover;display:block;" loading="lazy" referrerpolicy="no-referrer"></div>`;
-    });
-    html += '</div>';
-  }
+  let raw = String(text || "");
+
+  raw = raw.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => {
+    const safe = safeExternalUrl(url);
+    if (!safe) return alt || "";
+    return stash(`<img src="${escapeHtml(safe)}" alt="${escapeHtml(alt || "")}" loading="lazy" referrerpolicy="no-referrer">`);
+  });
+
+  raw = raw.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => {
+    const safe = safeExternalUrl(url);
+    if (!safe) return label;
+    return stash(`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`);
+  });
+
+  raw = raw.replace(/https?:\/\/[^\s<>()]+/g, (url) => {
+    const safe = safeExternalUrl(url);
+    if (!safe) return url;
+    return stash(`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`);
+  });
+
+  let html = escapeHtml(raw)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  html = html.replace(/@@XCOLLECT_TOKEN_(\d+)@@/g, (_, index) => tokens[Number(index)] || "");
   return html;
+}
+
+function parseMarkdownToHtml(md, images, videos) {
+  if (!md) {
+    return `<div class="canonical-prose"><p>暂无可渲染正文。请在 X 打开原文。</p></div>`;
+  }
+
+  const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+  const parts = [];
+  let paragraph = [];
+  let listType = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    parts.push(`<p>${paragraph.map(renderInlineMarkdown).join("<br>")}</p>`);
+    paragraph = [];
+  };
+
+  const closeList = () => {
+    if (!listType) return;
+    parts.push(`</${listType}>`);
+    listType = null;
+  };
+
+  const openList = (type) => {
+    if (listType === type) return;
+    closeList();
+    parts.push(`<${type}>`);
+    listType = type;
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "");
+
+    if (!line.trim()) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    if (/^\s{4}/.test(line)) {
+      flushParagraph();
+      closeList();
+      parts.push(`<pre><code>${escapeHtml(line.replace(/^\s{4}/, ""))}</code></pre>`);
+      continue;
+    }
+
+    if (/^---+$/.test(line.trim())) {
+      flushParagraph();
+      closeList();
+      parts.push("<hr>");
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const level = heading[1].length;
+      parts.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      closeList();
+      parts.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+      continue;
+    }
+
+    const unordered = line.match(/^[-*]\s+(.+)$/);
+    if (unordered) {
+      flushParagraph();
+      openList("ul");
+      parts.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
+      continue;
+    }
+
+    const ordered = line.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      openList("ol");
+      parts.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+      continue;
+    }
+
+    if (listType) closeList();
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  closeList();
+
+  let html = `<div class="canonical-prose">${parts.join("")}</div>`;
+  const bodyText = String(md);
+  const mediaParts = [];
+
+  if (Array.isArray(videos)) {
+    for (const video of videos) {
+      const src = safeExternalUrl(getVideoSource(video));
+      if (!src) continue;
+      const poster = video && typeof video === "object" ? safeExternalUrl(video.poster || "") : "";
+      mediaParts.push(`<div class="canonical-media"><video src="${escapeHtml(src)}" ${poster ? `poster="${escapeHtml(poster)}"` : ""} controls playsinline preload="metadata"></video></div>`);
+    }
+  }
+
+  if (Array.isArray(images)) {
+    const remainingImages = images
+      .map(safeExternalUrl)
+      .filter(Boolean)
+      .filter((url) => !bodyText.includes(url));
+
+    if (remainingImages.length) {
+      mediaParts.push(
+        `<div class="canonical-media canonical-media-grid">` +
+        remainingImages.map((url) => `<img src="${escapeHtml(url)}" alt="原推媒体" loading="lazy" referrerpolicy="no-referrer">`).join("") +
+        `</div>`
+      );
+    }
+  }
+
+  return html + mediaParts.join("");
 }
 
 function openAuthModal() {
