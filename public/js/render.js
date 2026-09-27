@@ -57,6 +57,39 @@ function cleanBodyRaw(md) {
   return lines.join("\n").replace(/^>\s*\*\*领域分类\*\*[:：]\s*`?【[^】]*】`?\s*\n?/m, "").trim();
 }
 
+function getVideoSource(video) {
+  if (!video) return "";
+  if (typeof video === "string") return video;
+  if (typeof video === "object") return video.url || "";
+  return "";
+}
+
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || ""), window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+  } catch (e) {
+    return "";
+  }
+  return "";
+}
+
+function prepareReaderBody(tweet) {
+  const body = tweet.body_raw ? cleanBodyRaw(tweet.body_raw) : cleanSnippet(tweet.snippet);
+  const title = cleanTitle(tweet.title || "");
+  if (!body || !title) return body || "";
+
+  const lines = body.split("\n");
+  const first = (lines[0] || "").replace(/^#{1,3}\s*/, "").trim();
+  const normalizedTitle = title.replace(/\.\.\.$/, "").trim();
+
+  // Article / Note Tweet 的首行常被同时投影成卡片标题；阅读器里避免重复一次。
+  if (lines.length > 1 && normalizedTitle && first.startsWith(normalizedTitle)) {
+    return lines.slice(1).join("\n").replace(/^\s+/, "");
+  }
+  return body;
+}
+
 /**
  * 生成单张推文卡片的 HTML
  */
@@ -71,15 +104,18 @@ function generateTweetCardHtml(item, idx = 0) {
   const hasImages = Array.isArray(item.images) && item.images.length > 0;
   const hasVideos = Array.isArray(item.videos) && item.videos.length > 0;
   const hasMedia = hasImages || hasVideos;
+  const primaryVideoUrl = hasVideos ? safeExternalUrl(getVideoSource(item.videos[0])) : "";
+  const primaryImageUrl = hasImages ? safeExternalUrl(item.images[0]) : "";
+  const previewText = escapeHtml(cleanSnippet(item.snippet) || "暂无正文摘要");
 
   let contentHtml = "";
   if (hasVideos) {
     contentHtml = `
       <div class="card-snippet media-mode" onclick="openDetail('${tweetId}')">
-        ${cleanSnippet(item.snippet) || "暂无正文摘要"}
+        ${previewText}
       </div>
       <div class="card-media-preview card-media-video" onclick="event.stopPropagation()">
-        <video src="${item.videos[0]}" preload="metadata" controls playsinline></video>
+        <video src="${escapeHtml(primaryVideoUrl)}" preload="metadata" controls playsinline></video>
         <div class="media-type-badge video-badge">▶ 视频</div>
       </div>
     `;
@@ -89,7 +125,7 @@ function generateTweetCardHtml(item, idx = 0) {
         ${cleanSnippet(item.snippet) || "暂无正文摘要"}
       </div>
       <div class="card-media-preview card-media-image" onclick="openDetail('${tweetId}')">
-        <img src="${item.images[0]}" alt="推文配图" loading="lazy">
+        <img src="${escapeHtml(primaryImageUrl)}" alt="推文配图" loading="lazy">
         ${item.images.length > 1 ? `<div class="media-type-badge img-badge">🖼️ 1/${item.images.length}</div>` : ''}
       </div>
     `;
@@ -97,9 +133,9 @@ function generateTweetCardHtml(item, idx = 0) {
     // 纯文字版专属排版：释放 175px 媒体空间，展示 6~7 行深度干货摘要，视觉充实整齐绝不空洞
     contentHtml = `
       <div class="card-text-rich-wrap" onclick="openDetail('${tweetId}')" title="点击查看完整推文正文">
-        <div class="card-text-rich-tag">📝 核心干货要点</div>
+        <div class="card-text-rich-tag">📝 内容预览</div>
         <div class="card-snippet text-rich">
-          ${cleanSnippet(item.snippet) || "暂无正文摘要"}
+          ${previewText}
         </div>
       </div>
     `;
@@ -112,20 +148,20 @@ function generateTweetCardHtml(item, idx = 0) {
           <div class="author-info">
             <div class="author-avatar">
               ${(item.avatar || "")
-                ? `<img class="author-avatar-img" src="${item.avatar}" alt="${(item.author || item.username || "?")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; var fb=this.nextElementSibling; if(fb){fb.style.display='flex';}">
+                ? `<img class="author-avatar-img" src="${item.avatar}" alt="${escapeHtml(item.author || item.username || "?")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; var fb=this.nextElementSibling; if(fb){fb.style.display='flex';}">
                    <span class="author-avatar-fallback" style="display:none">${(item.author || item.username || "?").charAt(0).toUpperCase()}</span>`
                 : `<span class="author-avatar-fallback">${(item.author || item.username || "?").charAt(0).toUpperCase()}</span>`}
             </div>
             <div class="author-meta">
-              <div class="author-name" title="${item.author || item.username}">${item.author || item.username}</div>
-              <div class="author-handle">@${item.username || "anon"}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
+              <div class="author-name" title="${item.author || item.username}">${escapeHtml(item.author || item.username)}</div>
+              <div class="author-handle">@${escapeHtml(item.username || "anon")}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
             </div>
           </div>
           ${subcatBadge}
         </div>
 
         <div class="card-title" onclick="openDetail('${tweetId}')" title="${cleanTitle(item.title) || item.filename}">
-          ${cleanTitle(item.title) || item.filename}
+          ${escapeHtml(cleanTitle(item.title) || item.filename)}
         </div>
 
         <div class="card-body-content">
