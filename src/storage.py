@@ -307,7 +307,7 @@ async def get_storage_status(env) -> dict:
     return status
 
 
-async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
+async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -> tuple[bool, str, dict]:
     """批量持久化推文。
 
     Cloudflare Workers Free 每次 invocation 的 D1 查询数有限，因此严禁“一条推文一条 INSERT”。
@@ -418,10 +418,11 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
                 item for item in tweets
                 if str(item.get("id", "")) not in existing_ids
             ]
-            details["d1_skipped_existing"] = len(tweets) - len(new_items)
+            write_items = tweets if refresh_existing else new_items
+            details["d1_skipped_existing"] = len(tweets) - len(write_items)
 
             normalized = []
-            for item in new_items:
+            for item in write_items:
                 images = item.get("images") or []
                 videos = item.get("videos") or []
                 normalized.append({
@@ -493,7 +494,7 @@ async def save_tweets(env, tweets: list[dict]) -> tuple[bool, str, dict]:
                 details["missing_head_ids"] = [tweet_id for tweet_id in head_ids if tweet_id not in persisted]
 
             saved_to_d1 = (
-                details["d1_written"] == len(new_items)
+                details["d1_written"] == len(write_items)
                 and details["d1_row_count"] is not None
                 and not details["missing_head_ids"]
             )
