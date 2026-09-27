@@ -134,7 +134,11 @@ async def perform_cloud_sync(env, trigger: str = "manual", force_reconcile: bool
         )
         return 502, payload
 
-    saved, storage_msg, storage_meta = await save_tweets(env, pulled)
+    saved, storage_msg, storage_meta = await save_tweets(
+        env,
+        pulled,
+        refresh_existing=full_scan,
+    )
     storage_status = await get_storage_status(env)
 
     if not saved:
