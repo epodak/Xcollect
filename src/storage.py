@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timezone
 from config_loader import CONFIG
 from classifier import rule_classify_tweet, get_existing_categories, ai_classify_tweet
+from ranking import enrich_related_hot_many
 
 try:
     from js import Response, Headers, Object as JsObject
@@ -224,6 +225,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
                 tweets_list.append(row_dict)
 
             tweets_list.sort(key=lambda item: int(item.get("bookmark_position", unordered_base)))
+            tweets_list = enrich_related_hot_many(tweets_list)
 
             _MEM_CACHE_TWEETS = {
                 "success": True,
@@ -253,6 +255,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
                 for idx, item in enumerate(kv_tweets):
                     if isinstance(item, dict):
                         item["bookmark_position"] = idx
+                kv_tweets = enrich_related_hot_many(kv_tweets)
                 _MEM_CACHE_TWEETS = {
                     "success": True,
                     "source": "Cloudflare KV",
@@ -269,6 +272,96 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
         "message": "Cloud Profile 未探测到 D1 或 KV 主存储。请绑定云存储，或使用 Local Profile。",
         "data": [],
     }
+
+
+FEEDBACK_WEIGHTS = {
+    "open_detail": 0.15,
+    "copy": 0.80,
+    "open_original": 0.30,
+    "bookmark": 1.00,
+    "unbookmark": -1.00,
+    "not_interested": -1.20,
+    "hide_author": -2.00,
+}
+
+
+async def record_feedback_event(
+    env,
+    event_id: str,
+    tweet_id: str,
+    action: str,
+    context=None,
+) -> tuple[bool, str, dict]:
+    """Persist one explicit/implicit preference signal.
+
+    Feedback is append-only training data. It must never mutate source content or
+    recommendation scores in-place; later ranking jobs aggregate these events
+    into user/topic/author preferences.
+    """
+    event_id = str(event_id or "").strip()[:128]
+    tweet_id = str(tweet_id or "").strip()[:128]
+    action = str(action or "").strip()
+
+    if not event_id or not tweet_id:
+        return False, "event_id 和 tweet_id 不能为空", {}
+    if action not in FEEDBACK_WEIGHTS:
+        return False, f"不支持的 feedback action: {action}", {}
+
+    weight = float(FEEDBACK_WEIGHTS[action])
+    if isinstance(context, dict):
+        context_text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))[:2000]
+    else:
+        context_text = str(context or "")[:2000]
+
+    payload = {
+        "event_id": event_id,
+        "tweet_id": tweet_id,
+        "action": action,
+        "weight": weight,
+        "context": context_text,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if hasattr(env, "DB"):
+        try:
+            await env.DB.prepare(
+                "CREATE TABLE IF NOT EXISTS feedback_events ("
+                "event_id TEXT PRIMARY KEY, tweet_id TEXT NOT NULL, action TEXT NOT NULL, "
+                "weight REAL NOT NULL, context TEXT, created_at TEXT NOT NULL)"
+            ).run()
+            await env.DB.prepare(
+                "INSERT OR IGNORE INTO feedback_events "
+                "(event_id, tweet_id, action, weight, context, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+            ).bind(
+                payload["event_id"],
+                payload["tweet_id"],
+                payload["action"],
+                payload["weight"],
+                payload["context"],
+                payload["created_at"],
+            ).run()
+            return True, "feedback recorded", payload
+        except Exception as err:
+            return False, f"D1 feedback 写入失败: {err}", {}
+
+    kv = get_kv_binding(env)
+    if kv:
+        try:
+            key = "feedback:events"
+            raw = await kv.get(key)
+            events = json.loads(raw) if raw else []
+            if not isinstance(events, list):
+                events = []
+            if not any(str(item.get("event_id")) == event_id for item in events if isinstance(item, dict)):
+                events.append(payload)
+                # Personal profile training log remains bounded in KV fallback.
+                events = events[-5000:]
+                await kv.put(key, json.dumps(events, ensure_ascii=False))
+            return True, "feedback recorded", payload
+        except Exception as err:
+            return False, f"KV feedback 写入失败: {err}", {}
+
+    return False, "Cloud Profile 未绑定 D1 或 KV，无法记录 feedback", {}
 
 
 async def get_storage_status(env) -> dict:
