@@ -37,3 +37,19 @@ CREATE TABLE IF NOT EXISTS meta_kv (
     updated_at TEXT
 );
 
+
+
+-- Append-only preference signals for the Personal Discovery Engine.
+-- Ranking jobs aggregate this table; source content remains immutable.
+CREATE TABLE IF NOT EXISTS feedback_events (
+    event_id TEXT PRIMARY KEY,
+    tweet_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    weight REAL NOT NULL,
+    context TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_tweet ON feedback_events (tweet_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_action ON feedback_events (action);
