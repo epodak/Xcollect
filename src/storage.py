@@ -132,7 +132,8 @@ async def _load_feedback_events(env) -> list[dict]:
     if hasattr(env, "DB"):
         try:
             res = await env.DB.prepare(
-                "SELECT tweet_id, action, MAX(weight) AS weight, MAX(created_at) AS created_at "
+                "SELECT tweet_id, action, MAX(weight) AS weight, MAX(context) AS context, "
+                "MAX(created_at) AS created_at "
                 "FROM feedback_events GROUP BY tweet_id, action ORDER BY created_at DESC LIMIT 5000"
             ).all()
             return [
@@ -140,6 +141,7 @@ async def _load_feedback_events(env) -> list[dict]:
                     "tweet_id": str(_row_get(row, "tweet_id", "")),
                     "action": str(_row_get(row, "action", "")),
                     "weight": float(_row_get(row, "weight", 0.0) or 0.0),
+                    "context": _row_get(row, "context", "") or "",
                     "created_at": _row_get(row, "created_at", ""),
                 }
                 for row in res.results
