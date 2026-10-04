@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 # 导入集中解耦配置中心
 from config_loader import CONFIG
 from src.ranking import enrich_related_hot_many
+from src.preferences import apply_preference_profile
 
 BASE_DIR = Path(__file__).resolve().parent
 SERVE_DIR = str(BASE_DIR / "public")
@@ -167,6 +168,26 @@ def ensure_local_data_file():
             initial = []
 
     atomic_write_json(DB_FILE, initial, keep_backup=False)
+
+
+def load_local_feedback(limit=5000):
+    feedback_path = Path(FEEDBACK_FILE)
+    if not feedback_path.exists():
+        return []
+    events = []
+    with LOCAL_DB_LOCK:
+        try:
+            with open(feedback_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        event = json.loads(line)
+                        if isinstance(event, dict):
+                            events.append(event)
+                    except Exception:
+                        continue
+        except Exception:
+            return []
+    return events[-max(1, int(limit)):]
 
 
 def append_local_feedback(event_id, tweet_id, action, context=None):
@@ -858,7 +879,11 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/tweets":
-            data = enrich_related_hot_many(load_local_tweets())
+            data, preference_profile = apply_preference_profile(
+                load_local_tweets(),
+                load_local_feedback(),
+            )
+            data = enrich_related_hot_many(data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -868,6 +893,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 "source": "Local JSON",
                 "storage_profile": "local",
                 "total": len(data),
+                "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
                 "data": data
             }, ensure_ascii=False).encode("utf-8"))
             return
