@@ -181,6 +181,14 @@ def compute_related_hot_features(item: dict, now=None) -> dict:
 
     if relevance is None:
         relevance = _clamp01(relevance_proxy)
+
+    try:
+        preference_boost = float(item.get("preference_boost") or 0.0)
+    except Exception:
+        preference_boost = 0.0
+    preference_boost = max(-0.22, min(0.22, preference_boost))
+    relevance = _clamp01(relevance + preference_boost)
+
     if quality is None:
         quality = _clamp01(quality_proxy)
     if novelty is None:
@@ -192,6 +200,7 @@ def compute_related_hot_features(item: dict, now=None) -> dict:
 
     return {
         "relevance": round(relevance, 6),
+        "preference_boost": round(preference_boost, 6),
         "quality": round(quality, 6),
         "novelty": round(novelty, 6),
         "engagement_velocity": round(_clamp01(engagement_velocity), 6),
