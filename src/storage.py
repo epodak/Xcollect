@@ -178,7 +178,11 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
     """加载推文数据：D1 为权威，bookmark_position 表示 X 当前收藏流顺序。"""
     global _MEM_CACHE_TWEETS
     if _MEM_CACHE_TWEETS is not None and not bypass_cache:
-        return _MEM_CACHE_TWEETS
+        # related-hot contains time-decay features. Recompute the projection on
+        # every read even when the source rows themselves are memory-cached.
+        cached = dict(_MEM_CACHE_TWEETS)
+        cached["data"] = enrich_related_hot_many(cached.get("data", []))
+        return cached
 
     if hasattr(env, "DB"):
         try:
