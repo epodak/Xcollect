@@ -22,6 +22,7 @@ import shutil
 import threading
 from urllib.parse import urlparse
 from pathlib import Path
+from datetime import datetime, timezone
 
 # 导入集中解耦配置中心
 from config_loader import CONFIG
@@ -188,9 +189,7 @@ def append_local_feedback(event_id, tweet_id, action, context=None):
         "action": action,
         "weight": float(CONFIG.feedback_weights[action]),
         "context": context_value,
-        "created_at": __import__("datetime").datetime.now(
-            __import__("datetime").timezone.utc
-        ).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
