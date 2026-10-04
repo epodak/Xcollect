@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from config_loader import CONFIG
 from classifier import rule_classify_tweet, get_existing_categories, ai_classify_tweet
 from ranking import enrich_related_hot_many
+from preferences import apply_preference_profile
 
 try:
     from js import Response, Headers, Object as JsObject
@@ -126,6 +127,44 @@ async def _save_bookmark_order(env, ordered_ids: list[str]):
     ).run()
 
 
+async def _load_feedback_events(env) -> list[dict]:
+    """Load bounded distinct feedback evidence for preference aggregation."""
+    if hasattr(env, "DB"):
+        try:
+            res = await env.DB.prepare(
+                "SELECT tweet_id, action, MAX(weight) AS weight, MAX(created_at) AS created_at "
+                "FROM feedback_events GROUP BY tweet_id, action ORDER BY created_at DESC LIMIT 5000"
+            ).all()
+            return [
+                {
+                    "tweet_id": str(_row_get(row, "tweet_id", "")),
+                    "action": str(_row_get(row, "action", "")),
+                    "weight": float(_row_get(row, "weight", 0.0) or 0.0),
+                    "created_at": _row_get(row, "created_at", ""),
+                }
+                for row in res.results
+            ]
+        except Exception:
+            # Existing deployments may not have created feedback_events yet.
+            return []
+
+    kv = get_kv_binding(env)
+    if kv:
+        try:
+            raw = await kv.get("feedback:events")
+            events = json.loads(raw) if raw else []
+            return events[-5000:] if isinstance(events, list) else []
+        except Exception:
+            return []
+
+    return []
+
+
+async def _apply_preferences(env, items: list[dict]) -> tuple[list[dict], dict]:
+    events = await _load_feedback_events(env)
+    return apply_preference_profile(items, events)
+
+
 async def get_known_tweet_ids(env) -> set[str]:
     """读取当前主存储已有 ID。
 
@@ -181,7 +220,9 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
         # related-hot contains time-decay features. Recompute the projection on
         # every read even when the source rows themselves are memory-cached.
         cached = dict(_MEM_CACHE_TWEETS)
-        cached["data"] = enrich_related_hot_many(cached.get("data", []))
+        preferred, profile = await _apply_preferences(env, cached.get("data", []))
+        cached["data"] = enrich_related_hot_many(preferred)
+        cached["preference_evidence_pairs"] = int(profile.get("evidence_pairs", 0) or 0)
         return cached
 
     if hasattr(env, "DB"):
@@ -229,6 +270,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
                 tweets_list.append(row_dict)
 
             tweets_list.sort(key=lambda item: int(item.get("bookmark_position", unordered_base)))
+            tweets_list, preference_profile = await _apply_preferences(env, tweets_list)
             tweets_list = enrich_related_hot_many(tweets_list)
 
             _MEM_CACHE_TWEETS = {
@@ -236,6 +278,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
                 "source": "Cloudflare D1",
                 "total": len(tweets_list),
                 "bookmark_order_count": len(order),
+                "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
                 "data": tweets_list,
             }
             return _MEM_CACHE_TWEETS
@@ -259,12 +302,14 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
                 for idx, item in enumerate(kv_tweets):
                     if isinstance(item, dict):
                         item["bookmark_position"] = idx
+                kv_tweets, preference_profile = await _apply_preferences(env, kv_tweets)
                 kv_tweets = enrich_related_hot_many(kv_tweets)
                 _MEM_CACHE_TWEETS = {
                     "success": True,
                     "source": "Cloudflare KV",
                     "storage_profile": "kv",
                     "total": len(kv_tweets),
+                    "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
                     "data": kv_tweets,
                 }
                 return _MEM_CACHE_TWEETS
@@ -333,6 +378,7 @@ async def record_feedback_event(
                 payload["context"],
                 payload["created_at"],
             ).run()
+            invalidate_cache()
             return True, "feedback recorded", payload
         except Exception as err:
             return False, f"D1 feedback 写入失败: {err}", {}
@@ -350,6 +396,7 @@ async def record_feedback_event(
                 # Personal profile training log remains bounded in KV fallback.
                 events = events[-5000:]
                 await kv.put(key, json.dumps(events, ensure_ascii=False))
+            invalidate_cache()
             return True, "feedback recorded", payload
         except Exception as err:
             return False, f"KV feedback 写入失败: {err}", {}
