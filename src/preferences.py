@@ -5,6 +5,7 @@ Raw feedback remains append-only. This module derives a small, reproducible
 preference field from those events and never mutates the evidence.
 """
 
+import json
 import math
 
 
@@ -38,20 +39,43 @@ def build_preference_profile(items: list[dict], events: list[dict]) -> dict:
             weight = float(event.get("weight") or 0.0)
         except Exception:
             weight = 0.0
-        distinct[(tweet_id, action)] = weight
+
+        raw_context = event.get("context") or {}
+        if isinstance(raw_context, str):
+            try:
+                parsed_context = json.loads(raw_context)
+                context = parsed_context if isinstance(parsed_context, dict) else {}
+            except Exception:
+                context = {}
+        elif isinstance(raw_context, dict):
+            context = raw_context
+        else:
+            context = {}
+
+        distinct[(tweet_id, action)] = {
+            "weight": weight,
+            "context": context,
+        }
 
     category_raw = {}
     subcategory_raw = {}
     author_raw = {}
 
-    for (tweet_id, _action), weight in distinct.items():
-        item = item_by_id.get(tweet_id)
-        if not item:
-            continue
+    for (tweet_id, _action), evidence in distinct.items():
+        weight = float(evidence.get("weight") or 0.0)
+        context = evidence.get("context") or {}
+        item = item_by_id.get(tweet_id) or {}
 
-        category = _key(item.get("category"))
-        subcategory = _key(item.get("sub_category"))
-        author = _key(item.get("username") or item.get("author")).lower()
+        # Context fallback preserves negative learning even after an unbookmark
+        # removes the source row from the durable bookmark table.
+        category = _key(item.get("category") or context.get("category"))
+        subcategory = _key(item.get("sub_category") or context.get("sub_category"))
+        author = _key(
+            item.get("username")
+            or item.get("author")
+            or context.get("username")
+            or context.get("author")
+        ).lower()
 
         if category:
             category_raw[category] = category_raw.get(category, 0.0) + weight
