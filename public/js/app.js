@@ -821,6 +821,7 @@ window.toggleXBookmark = async function(tweetId) {
 
       const btn = document.getElementById(`btn-toggle-${tweetId}`);
       if (btn) btn.disabled = true;
+      const feedbackItem = tweets.find(t => String(t.id) === String(tweetId));
 
       const currentlySaved = !unbookmarkedIds.has(tweetId);
       const action = currentlySaved ? "delete" : "create";
@@ -850,7 +851,9 @@ window.toggleXBookmark = async function(tweetId) {
           }
           saveUnbookmarked();
           recordTweetFeedback(tweetId, action === "delete" ? "unbookmark" : "bookmark", {
-            surface: currentOpenTweet && currentOpenTweet.id === tweetId ? "reader" : "feed"
+            surface: currentOpenTweet && currentOpenTweet.id === tweetId ? "reader" : "feed",
+            category: feedbackItem ? (feedbackItem.category || "") : "",
+            sub_category: feedbackItem ? (feedbackItem.sub_category || "") : ""
           });
           applyFiltersAndRender();
 
