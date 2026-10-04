@@ -36,15 +36,6 @@ ENV_FILE = str(BASE_DIR / ".env")
 FEEDBACK_FILE = str(DATA_DIR / "feedback_events.jsonl")
 LOCAL_DB_LOCK = threading.RLock()
 
-FEEDBACK_WEIGHTS = {
-    "open_detail": 0.15,
-    "copy": 0.80,
-    "open_original": 0.30,
-    "bookmark": 1.00,
-    "unbookmark": -1.00,
-    "not_interested": -1.20,
-    "hide_author": -2.00,
-}
 
 PORT = CONFIG.port
 TWITTER_BEARER = CONFIG.twitter_bearer
@@ -183,7 +174,7 @@ def append_local_feedback(event_id, tweet_id, action, context=None):
     action = str(action or "").strip()
     if not event_id or not tweet_id:
         return False, "event_id 和 tweet_id 不能为空", {}
-    if action not in FEEDBACK_WEIGHTS:
+    if action not in CONFIG.feedback_weights:
         return False, f"不支持的 feedback action: {action}", {}
 
     if isinstance(context, dict):
@@ -195,7 +186,7 @@ def append_local_feedback(event_id, tweet_id, action, context=None):
         "event_id": event_id,
         "tweet_id": tweet_id,
         "action": action,
-        "weight": float(FEEDBACK_WEIGHTS[action]),
+        "weight": float(CONFIG.feedback_weights[action]),
         "context": context_value,
         "created_at": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc
