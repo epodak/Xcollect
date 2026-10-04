@@ -200,6 +200,11 @@ async function copyTweetMarkdown(tweetId, button = null) {
   let resetDelay = 0;
   try {
     await writeTextToClipboard(markdown);
+    if (typeof window.recordTweetFeedback === "function") {
+      window.recordTweetFeedback(tweetId, "copy", {
+        surface: window.currentOpenTweet && window.currentOpenTweet.id === tweetId ? "reader" : "feed"
+      });
+    }
     showToast("已复制 Markdown 到剪贴板");
     if (button) {
       button.innerHTML = "<span>✓ 已复制</span>";
@@ -314,7 +319,7 @@ function generateTweetCardHtml(item, idx = 0) {
           <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="toggleXBookmark('${tweetId}')" title="${isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏'}">
             <span>${isSavedOnX ? '★ 移出' : '☆ 收藏'}</span>
           </button>
-          <a class="btn-action btn-twitter" href="${item.url || 'https://x.com'}" target="_blank" rel="noopener noreferrer" title="前往 Twitter 页面查看或管理原推">
+          <a class="btn-action btn-twitter" href="${item.url || 'https://x.com'}" target="_blank" rel="noopener noreferrer" onclick="if(window.recordTweetFeedback){window.recordTweetFeedback('${tweetId}', 'open_original', {surface:'feed'});}" title="前往 Twitter 页面查看或管理原推">
             <span>𝕏 原推 ↗</span>
           </a>
         </div>
@@ -435,6 +440,9 @@ window.openDetail = function(tweetId) {
   const tweet = window.tweets && window.tweets.find(t => t.id === tweetId || t.filename === tweetId);
   if (!tweet) return;
   window.currentOpenTweet = tweet;
+  if (typeof window.recordTweetFeedback === "function") {
+    window.recordTweetFeedback(tweetId, "open_detail", { surface: "reader" });
+  }
 
   const rawSub = (tweet.sub_category || "").trim();
   const displaySub = (rawSub.includes("/") ? rawSub.split("/").pop().trim() : rawSub)
@@ -464,7 +472,13 @@ window.openDetail = function(tweetId) {
     `❤️ ${formatNumber(tweet.likes)} 赞 · 🔁 ${formatNumber(tweet.retweets)} 转 · 👀 ${formatNumber(tweet.views)} 阅`;
 
   const sourceUrl = safeExternalUrl(tweet.url || "https://x.com") || "https://x.com";
-  document.getElementById("modalTwitterLink").href = sourceUrl;
+  const modalTwitterLink = document.getElementById("modalTwitterLink");
+  modalTwitterLink.href = sourceUrl;
+  modalTwitterLink.onclick = () => {
+    if (typeof window.recordTweetFeedback === "function") {
+      window.recordTweetFeedback(tweetId, "open_original", { surface: "reader" });
+    }
+  };
 
   updateModalBookmarkBtn();
   document.getElementById("modalToggleBookmark").onclick = () => window.toggleXBookmark(tweetId);
