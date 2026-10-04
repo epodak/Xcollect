@@ -404,6 +404,20 @@
       cursor: not-allowed;
     }
 
+    .btn-action.btn-copy {
+      color: rgb(var(--c-fg-muted));
+      background: rgb(var(--c-sunken));
+      border-color: rgb(var(--c-line));
+    }
+    .btn-action.btn-copy:hover {
+      background: rgb(var(--c-surface-hover));
+      border-color: rgb(var(--c-line-strong));
+      color: rgb(var(--c-fg));
+    }
+    .btn-action.btn-copy:active {
+      transform: scale(0.96);
+    }
+
     .btn-action.btn-twitter {
       color: #38bdf8;
       background: rgb(var(--c-sunken));

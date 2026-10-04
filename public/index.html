@@ -402,6 +402,9 @@
           ❤️ 0 赞 · 🔁 0 转 · 👀 0 阅
         </div>
         <div style="display: flex; gap: 0.6rem;">
+          <button type="button" class="btn-action btn-copy" id="modalCopyBtn" onclick="copyTweetMarkdown(window.currentOpenTweet ? window.currentOpenTweet.id : '', this)" title="复制完整推文为 Markdown 到剪贴板">
+            <span>⧉ 复制 Markdown</span>
+          </button>
           <button class="btn-action btn-bookmark" id="modalToggleBookmark">
             <span>⭐ 同步 X 书签状态</span>
           </button>

@@ -148,6 +148,16 @@
     html.light .modal-card {
       box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.25);
     }
+    html.light .btn-action.btn-copy {
+      color: #475569;
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+    html.light .btn-action.btn-copy:hover {
+      background: #f1f5f9;
+      border-color: #94a3b8;
+      color: #0f172a;
+    }
     html.light .btn-action.btn-twitter {
       color: #0284c7;
     }
