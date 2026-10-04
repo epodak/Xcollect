@@ -125,9 +125,10 @@ const api = {
     }
     if (!Array.isArray(queued) || queued.length === 0) return { flushed: 0 };
 
-    const remaining = [];
+    const batch = queued.slice(0, 25);
+    const remaining = queued.slice(25);
     let flushed = 0;
-    for (const payload of queued.slice(-200)) {
+    for (const payload of batch) {
       try {
         const resp = await fetch("/api/feedback", {
           method: "POST",
