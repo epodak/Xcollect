@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from src.config_loader import CONFIG
 from src.ranking import compute_related_hot_score
+from src.preferences import apply_preference_profile
 
 
 def _tweet(**overrides):
@@ -67,6 +68,23 @@ def main():
     assert features["relevance"] == 0.99
     assert features["quality"] == 0.95
     assert 0.0 <= enriched_score <= 1.0
+
+    preference_items = [
+        _tweet(id="a", category="01_人工智能与Agent", sub_category="Coding Agent/智能编程", username="author_a"),
+        _tweet(id="b", category="01_人工智能与Agent", sub_category="Coding Agent/智能编程", username="author_b"),
+        _tweet(id="c", category="04_产品设计与思考", sub_category="产品交互与体验设计", username="author_c"),
+    ]
+    feedback = [
+        {"tweet_id": "a", "action": "copy", "weight": 0.80},
+        {"tweet_id": "a", "action": "copy", "weight": 0.80},  # duplicate action must not compound
+        {"tweet_id": "a", "action": "open_detail", "weight": 0.15},
+        {"tweet_id": "c", "action": "unbookmark", "weight": -1.00},
+    ]
+    preferred, profile = apply_preference_profile(preference_items, feedback)
+    by_id = {item["id"]: item for item in preferred}
+    assert profile["evidence_pairs"] == 3
+    assert by_id["b"]["preference_boost"] > 0
+    assert by_id["c"]["preference_boost"] < 0
 
     assert CONFIG.feedback_weights["bookmark"] > 0
     assert CONFIG.feedback_weights["copy"] > 0
