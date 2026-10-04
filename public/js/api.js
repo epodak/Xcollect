@@ -159,11 +159,14 @@ window.api = api;
 
 window.recordTweetFeedback = function(tweetId, action, context = {}) {
   if (!tweetId || !action) return;
+  const item = Array.isArray(window.tweets)
+    ? window.tweets.find(tweet => String(tweet.id) === String(tweetId))
+    : null;
   const mergedContext = Object.assign({
     surface: context.surface || "feed",
     sort_mode: window.sortMode || "related_hot_desc",
-    category: window.activeCategory || "ALL",
-    sub_category: window.activeSubCategory || "ALL"
+    category: item ? (item.category || "") : "",
+    sub_category: item ? (item.sub_category || "") : ""
   }, context || {});
 
   api.recordFeedback(tweetId, action, mergedContext).catch(() => {
