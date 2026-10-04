@@ -101,6 +101,18 @@
   background: rgb(var(--c-sunken));
 }
 
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.modal-actions .btn-action {
+  min-height: 34px;
+}
+
 /* 弹窗通用表单样式 */
 .form-group {
   margin-bottom: 1.2rem;
@@ -202,16 +214,22 @@
     text-align: center;
   }
 
-  .modal-footer > div:last-child {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr;
+  .modal-footer > .modal-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.5rem;
   }
 
-  .modal-footer .btn-action {
+  .modal-actions .btn-action {
     width: 100%;
+    min-width: 0;
     padding: 0.52rem;
     font-size: 0.78rem;
+  }
+
+  /* Copy + bookmark form the primary action pair; source navigation gets a stable full-width row. */
+  .modal-actions .btn-twitter {
+    grid-column: 1 / -1;
   }
 
   #toastMsg {
