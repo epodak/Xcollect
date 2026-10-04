@@ -274,17 +274,6 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
     }
 
 
-FEEDBACK_WEIGHTS = {
-    "open_detail": 0.15,
-    "copy": 0.80,
-    "open_original": 0.30,
-    "bookmark": 1.00,
-    "unbookmark": -1.00,
-    "not_interested": -1.20,
-    "hide_author": -2.00,
-}
-
-
 async def record_feedback_event(
     env,
     event_id: str,
@@ -304,10 +293,10 @@ async def record_feedback_event(
 
     if not event_id or not tweet_id:
         return False, "event_id 和 tweet_id 不能为空", {}
-    if action not in FEEDBACK_WEIGHTS:
+    if action not in CONFIG.feedback_weights:
         return False, f"不支持的 feedback action: {action}", {}
 
-    weight = float(FEEDBACK_WEIGHTS[action])
+    weight = float(CONFIG.feedback_weights[action])
     if isinstance(context, dict):
         context_text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))[:2000]
     else:
