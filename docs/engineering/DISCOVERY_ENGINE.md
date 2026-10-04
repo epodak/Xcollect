@@ -119,6 +119,18 @@ next feed
 Raw events are never rewritten into a single mutable "preference" field.
 Aggregated preference models must be reproducible from the event log.
 
+The first online trainer is deliberately small and bounded:
+
+- repeated `(tweet, action)` pairs are deduplicated for learning;
+- reward is aggregated into category, sub-category and author signals;
+- signals are squashed with `tanh`;
+- the combined correction is bounded to approximately `[-0.22, +0.22]`;
+- the correction modifies semantic relevance rather than replacing quality,
+  freshness or velocity.
+
+This means a few actions can steer the feed, but cannot immediately collapse it
+into an echo chamber.
+
 Client feedback is best-effort and must never block reading, copying, opening X
 or bookmark actions. Failed events are queued locally and retried later.
 
@@ -205,6 +217,8 @@ This change establishes:
 - default Related Hot UI ranking;
 - deterministic fallback ranking for existing bookmarks;
 - append-only feedback capture in D1/KV and Local Profile;
+- an immediate bounded preference trainer derived from those events;
+- learned category/sub-category/author preference folded into relevance;
 - schema objects for future discovery candidates and daily feed.
 
 It does **not** yet claim to perform global X discovery. Candidate acquisition
