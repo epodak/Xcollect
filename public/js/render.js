@@ -89,6 +89,136 @@ function prepareReaderBody(tweet) {
 }
 
 /**
+ * 将 canonical tweet 组装为可移植 Markdown。
+ * body_raw 是正文真源；卡片 snippet 只在旧数据缺失正文时兜底。
+ */
+function buildTweetMarkdown(tweet) {
+  if (!tweet) return "";
+
+  const title = cleanTitle(tweet.title || "") || `X 推文 · @${tweet.username || "unknown"}`;
+  const body = (prepareReaderBody(tweet) || cleanSnippet(tweet.snippet) || "").trim();
+  const sourceUrl = safeExternalUrl(tweet.url || "");
+  const author = (tweet.author || tweet.username || "").trim();
+  const handle = tweet.username ? `@${tweet.username}` : "";
+  const categoryPath = [tweet.category, tweet.sub_category]
+    .map(value => String(value || "").trim())
+    .filter(Boolean)
+    .join(" / ");
+
+  const parts = [`# ${title}`, ""];
+  const metadata = [];
+
+  if (author || handle) {
+    const displayAuthor = [author, handle && handle !== author ? `(${handle})` : ""]
+      .filter(Boolean)
+      .join(" ");
+    metadata.push(`作者：${displayAuthor}`);
+  }
+  if (tweet.created_at) metadata.push(`发布：${formatDate(tweet.created_at)}`);
+  if (categoryPath) metadata.push(`分类：${categoryPath}`);
+  if (sourceUrl) metadata.push(`原推：${sourceUrl}`);
+
+  if (metadata.length) {
+    parts.push(metadata.map(line => `> ${line}`).join("\n"), "");
+  }
+
+  if (body) parts.push(body);
+
+  // 正文中没有显式引用的媒体，也一起带走，保证复制结果尽可能自包含。
+  const mediaLines = [];
+  const embeddedText = body;
+
+  if (Array.isArray(tweet.images)) {
+    tweet.images.forEach((image, index) => {
+      const url = safeExternalUrl(image);
+      if (!url || embeddedText.includes(url)) return;
+      mediaLines.push(`![原推配图 ${index + 1}](${url})`);
+    });
+  }
+
+  if (Array.isArray(tweet.videos)) {
+    tweet.videos.forEach((video, index) => {
+      const url = safeExternalUrl(getVideoSource(video));
+      if (!url || embeddedText.includes(url)) return;
+      mediaLines.push(`- [原推视频 ${index + 1}](${url})`);
+    });
+  }
+
+  if (mediaLines.length) {
+    parts.push("", "## 媒体", "", ...mediaLines);
+  }
+
+  return parts
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim() + "\n";
+}
+
+async function writeTextToClipboard(text) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  // Local Profile / 旧浏览器兜底。
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("clipboard copy command failed");
+}
+
+async function copyTweetMarkdown(tweetId, button = null) {
+  const tweet = window.tweets && window.tweets.find(
+    item => item.id === tweetId || item.filename === tweetId
+  );
+  if (!tweet) {
+    showToast("未找到这条推文，无法复制", false);
+    return;
+  }
+
+  const markdown = buildTweetMarkdown(tweet);
+  if (!markdown) {
+    showToast("这条推文没有可复制的 Markdown 内容", false);
+    return;
+  }
+
+  const originalHtml = button ? button.innerHTML : "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = "<span>复制中…</span>";
+  }
+
+  let resetDelay = 0;
+  try {
+    await writeTextToClipboard(markdown);
+    showToast("已复制 Markdown 到剪贴板");
+    if (button) {
+      button.innerHTML = "<span>✓ 已复制</span>";
+      resetDelay = 1200;
+    }
+  } catch (error) {
+    console.error("Copy tweet markdown failed:", error);
+    showToast("复制失败，请检查浏览器剪贴板权限", false);
+  } finally {
+    if (button) {
+      setTimeout(() => {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+      }, resetDelay);
+    }
+  }
+}
+
+/**
  * 生成单张推文卡片的 HTML
  */
 function generateTweetCardHtml(item, idx = 0) {
@@ -174,6 +304,9 @@ function generateTweetCardHtml(item, idx = 0) {
         </div>
 
         <div class="card-buttons">
+          <button type="button" class="btn-action btn-copy" onclick="copyTweetMarkdown('${tweetId}', this)" title="复制完整推文为 Markdown 到剪贴板" aria-label="复制推文 Markdown">
+            <span>⧉ 复制</span>
+          </button>
           <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="toggleXBookmark('${tweetId}')" title="${isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏'}">
             <span>${isSavedOnX ? '★ 移出' : '☆ 收藏'}</span>
           </button>
@@ -546,6 +679,8 @@ window.formatDate = formatDate;
 window.cleanTitle = cleanTitle;
 window.cleanSnippet = cleanSnippet;
 window.cleanBodyRaw = cleanBodyRaw;
+window.buildTweetMarkdown = buildTweetMarkdown;
+window.copyTweetMarkdown = copyTweetMarkdown;
 window.generateTweetCardHtml = generateTweetCardHtml;
 window.renderSkeletonCards = renderSkeletonCards;
 window.renderTweetsBatch = renderTweetsBatch;
