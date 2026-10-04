@@ -52,6 +52,10 @@
         <span id="syncBtnIcon">🔄</span>
         <span id="syncBtnText">立即同步</span>
       </button>
+      <button class="btn-action btn-discover" id="btnDiscover" title="立即运行一次 Global Discovery；Personal Cloud 正常由 Cron 自动发现">
+        <span id="discoverBtnIcon">🔥</span>
+        <span id="discoverBtnText">立即发现</span>
+      </button>
       <button class="btn-action" id="btnClassify" title="使用 Workers AI 对书签推文进行全自动语义归类并分发至对应专区" style="border-color: rgb(var(--c-brand) / 0.45); color: rgb(var(--c-brand-bright));">
         <span id="classifyBtnIcon">✨</span>
         <span id="classifyBtnText">AI 智能归类</span>
@@ -120,6 +124,13 @@
         <div class="sidebar-heading">同步状态</div>
         <div style="font-size: 0.78rem; color: rgb(var(--c-fg-subtle)); line-height: 1.5; padding: 0 0.5rem;" id="syncStateNotice">
           正在读取最近一次同步状态…
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-heading">智能发现</div>
+        <div style="font-size: 0.78rem; color: rgb(var(--c-fg-subtle)); line-height: 1.5; padding: 0 0.5rem;" id="discoveryStateNotice">
+          正在读取 Discovery 状态…
         </div>
       </div>
     </aside>

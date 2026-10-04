@@ -112,3 +112,30 @@ CREATE TABLE IF NOT EXISTS daily_feed (
 
 CREATE INDEX IF NOT EXISTS idx_daily_feed_rank
     ON daily_feed (feed_date, rank ASC);
+
+
+-- Resumable discovery state machine. Cron invocations advance durable stages
+-- instead of requiring search + AI + publication to finish in one request.
+CREATE TABLE IF NOT EXISTS discovery_runs (
+    run_id TEXT PRIMARY KEY,
+    discovery_date TEXT NOT NULL,
+    state TEXT NOT NULL,
+    trigger TEXT,
+    query_plan_json TEXT,
+    candidate_ids_json TEXT,
+    batch_request_id TEXT,
+    batch_model TEXT,
+    raw_count INTEGER DEFAULT 0,
+    accepted_count INTEGER DEFAULT 0,
+    rejected_count INTEGER DEFAULT 0,
+    selected_count INTEGER DEFAULT 0,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_discovery_runs_state
+    ON discovery_runs (state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_discovery_runs_date
+    ON discovery_runs (discovery_date, updated_at DESC);

@@ -132,6 +132,27 @@
       text-overflow: ellipsis;
     }
 
+    .card-badges {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.35rem;
+      min-width: 0;
+      flex-shrink: 0;
+    }
+
+    .badge-discovery {
+      font-size: 0.7rem;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: rgb(var(--c-accent));
+      background: rgb(var(--c-accent) / 0.10);
+      border: 1px solid rgb(var(--c-accent) / 0.30);
+      padding: 0.18rem 0.5rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
     .badge-subcat {
       font-size: 0.72rem;
       font-weight: 500;
@@ -443,6 +464,29 @@
       transform: none;
     }
 
+    .btn-action.btn-discover {
+      color: rgb(var(--c-accent));
+      background: rgb(var(--c-accent) / 0.09);
+      border-color: rgb(var(--c-accent) / 0.34);
+    }
+
+    .btn-action.btn-discover:hover {
+      color: rgb(var(--c-accent));
+      background: rgb(var(--c-accent) / 0.16);
+      border-color: rgb(var(--c-accent) / 0.60);
+      box-shadow: 0 0 14px rgb(var(--c-accent) / 0.10);
+    }
+    .btn-action.btn-dismiss {
+      color: rgb(var(--c-fg-subtle));
+      background: transparent;
+      border-color: rgb(var(--c-line));
+    }
+
+    .btn-action.btn-dismiss:hover {
+      color: rgb(var(--c-danger));
+      background: rgb(var(--c-danger) / 0.08);
+      border-color: rgb(var(--c-danger) / 0.42);
+    }
     .btn-action.btn-twitter {
       color: #38bdf8;
       background: rgb(var(--c-sunken));

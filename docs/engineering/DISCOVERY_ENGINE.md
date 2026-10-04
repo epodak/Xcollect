@@ -179,14 +179,14 @@ taxonomy + trusted authors + learned preference
                 daily_feed
 ```
 
-The future selector must enforce diversity rather than plain Top-K. Expected
-constraints include:
+The selector already enforces coarse-grained diversity instead of plain Top-K:
 
 - per-author daily cap;
-- per-cluster cap;
-- near-duplicate suppression;
-- category/sub-category quotas;
-- MMR-style relevance-versus-redundancy selection.
+- per-sub-category daily cap;
+- per-category share cap.
+
+The next selector revision should add semantic near-duplicate clustering and
+MMR-style relevance-versus-redundancy selection.
 
 ## State machine
 
@@ -211,16 +211,32 @@ to finish in one Worker execution.
 
 ## Current implementation boundary
 
-This change establishes:
+The live Discovery Plane now includes:
 
-- backend `related_hot_score`;
-- default Related Hot UI ranking;
-- deterministic fallback ranking for existing bookmarks;
-- append-only feedback capture in D1/KV and Local Profile;
-- an immediate bounded preference trainer derived from those events;
-- learned category/sub-category/author preference folded into relevance;
-- schema objects for future discovery candidates and daily feed.
+- a round-robin query plan in `prompts/discovery_queries.json`;
+- dynamic SearchTimeline queryId / feature / transport resolution from the same
+  external registry already used by the bookmark adapter;
+- GET/POST transport fallback so X Web build changes do not silently couple the
+  product to one request shape;
+- candidate acquisition that remains independent from bookmark synchronization;
+- hard rejection for sensitive / extremely short / obvious promo-spam content;
+- Workers AI micro-batch judging with deterministic fallback;
+- related-hot scoring after learned preference correction;
+- daily-feed materialization with author / sub-category / category caps;
+- `/api/feed`, `/api/discovery/status`, `/api/discovery/run` and
+  `/api/discovery/action`;
+- a distinct discovery-card interaction: save to X or mark as not interested.
 
-It does **not** yet claim to perform global X discovery. Candidate acquisition
-must be implemented as a separate Discovery Plane source adapter, rather than
-being hidden inside bookmark synchronization.
+The current judge deliberately uses small synchronous Workers AI micro-batches
+(up to 12 candidates per call) because the existing Worker AI binding requires
+no additional service credential. The durable D1 state is designed so this
+judge can later be replaced by Cloudflare's asynchronous Batch API without
+changing the candidate/feed contracts.
+
+Still pending:
+
+- semantic embedding / near-duplicate clustering;
+- MMR selection;
+- trusted-author graph expansion;
+- learned query expansion from positive/negative feedback;
+- asynchronous AI Batch submission and resume states.

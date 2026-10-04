@@ -80,6 +80,32 @@ async function checkAuthStatus() {
   }
 }
 
+async function refreshDiscoveryStatusNotice() {
+  const notice = document.getElementById("discoveryStateNotice");
+  if (!notice) return;
+
+  try {
+    const status = await api.getDiscoveryStatus();
+    if (!status.available) {
+      notice.innerHTML = "💻 Global Discovery 仅在 Personal Cloud / D1 Profile 运行。";
+      return;
+    }
+
+    const when = status.last_run_at
+      ? new Date(status.last_run_at).toLocaleString()
+      : "尚未运行";
+    const feedCount = Number(status.daily_feed_count || 0);
+    const states = status.states || {};
+    notice.innerHTML =
+      "🔥 <b>Personal Discovery</b><br>" +
+      "最近运行：" + when + "<br>" +
+      "今日 Feed " + feedCount + " · 候选 " + Number(states.candidate || 0) +
+      " · 已评估 " + Number(states.judged || 0);
+  } catch (e) {
+    notice.innerHTML = "ℹ️ Discovery 状态暂不可用。";
+  }
+}
+
 async function refreshSyncStatusNotice() {
   const notice = document.getElementById("syncStateNotice");
   if (!notice) return;
@@ -164,6 +190,7 @@ async function initApp() {
   setupEventListeners();
   const authStatusPromise = checkAuthStatus();
   const syncStatusPromise = refreshSyncStatusNotice();
+  const discoveryStatusPromise = refreshDiscoveryStatusNotice();
   api.flushFeedbackQueue().catch(() => {});
 
   // 4. 后台发起真实网络请求（非阻塞），实现推特级 Stale-While-Revalidate
@@ -201,6 +228,7 @@ async function initApp() {
   // Cloud Profile 由 Cron Trigger 自动同步；这里只等待状态请求完成。
   await authStatusPromise;
   await syncStatusPromise;
+  await discoveryStatusPromise;
 }
 
 function renderCategories() {
@@ -614,6 +642,7 @@ function setupEventListeners() {
             const removedText = removed > 0 ? `，移除 ${removed} 条 X 已取消收藏` : "";
             showToast(`同步完成：X 拉取 ${result.pulled_count || result.count || 0}，${backend} 新增 ${storedNew}${removedText}，总计 ${storedTotal}`);
             await refreshSyncStatusNotice();
+            await refreshDiscoveryStatusNotice();
           } else {
             showToast(result.message || result.error || "从 X 拉取书签失败", false);
             await refreshSyncStatusNotice();
@@ -627,6 +656,52 @@ function setupEventListeners() {
         }
       };
 
+      const btnDiscover = document.getElementById("btnDiscover");
+      if (btnDiscover) {
+        btnDiscover.onclick = async () => {
+          if (!isXConfigured) {
+            openAuthModal();
+            showToast("请先配置 𝕏 凭证后再运行 Global Discovery", false);
+            return;
+          }
+
+          const text = document.getElementById("discoverBtnText");
+          const icon = document.getElementById("discoverBtnIcon");
+          btnDiscover.disabled = true;
+          if (icon) icon.style.animation = "spin 1s linear infinite";
+          if (text) text.textContent = "正在发现...";
+
+          try {
+            const result = await api.runDiscovery();
+            if (!result.ok || !result.data || !result.data.success) {
+              throw new Error((result.data && (result.data.message || result.data.error)) || "Discovery failed");
+            }
+
+            const fresh = await api.getTweets(true);
+            if (fresh.success && Array.isArray(fresh.data)) {
+              tweets = fresh.data;
+              window.tweets = tweets;
+              try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
+              renderCategories();
+              applyFiltersAndRender();
+            }
+
+            const d = result.data;
+            showToast(
+              "Discovery 完成：候选 " + Number(d.raw_candidates || 0) +
+              "，筛后 " + Number(d.accepted_candidates || 0) +
+              "，今日 Feed " + Number(d.daily_feed_count || 0)
+            );
+            await refreshDiscoveryStatusNotice();
+          } catch (err) {
+            showToast("Discovery 运行失败: " + err, false);
+          } finally {
+            btnDiscover.disabled = false;
+            if (icon) icon.style.animation = "none";
+            if (text) text.textContent = "立即发现";
+          }
+        };
+      }
       // 一键 AI 智能分类与专区归档
       const btnClassify = document.getElementById("btnClassify");
       if (btnClassify) {
@@ -644,14 +719,12 @@ function setupEventListeners() {
               showToast(result.message);
               // 重新拉取当前持久化层最新数据并刷新界面
               try {
-                const d1Resp = await fetch("/api/tweets");
-                if (d1Resp.ok) {
-                  const d1Data = await d1Resp.json();
-                  if (d1Data.success && Array.isArray(d1Data.data)) {
-                    tweets = d1Data.data;
-                    renderCategories();
-                    applyFiltersAndRender();
-                  }
+                const d1Data = await api.getTweets(true);
+                if (d1Data.success && Array.isArray(d1Data.data)) {
+                  tweets = d1Data.data;
+                  window.tweets = tweets;
+                  renderCategories();
+                  applyFiltersAndRender();
                 } else {
                   setTimeout(() => location.reload(), 1200);
                 }
@@ -681,7 +754,10 @@ function setupEventListeners() {
 function applyFiltersAndRender(resetScroll = true) {
   currentFilteredList = tweets.filter(item => {
     const tweetId = item.id;
-    const isCurrentlyBookmarkedOnX = !unbookmarkedIds.has(tweetId);
+    const isCurrentlyBookmarkedOnX =
+      item.is_bookmark !== false &&
+      item.source_kind !== "discovery" &&
+      !unbookmarkedIds.has(tweetId);
 
     // 主分类筛选
     if (activeCategory !== "ALL" && item.category !== activeCategory) {
@@ -812,6 +888,35 @@ function setupInfiniteScroll() {
   sentinelObserver.observe(sentinel);
 }
 
+window.dismissDiscovery = async function(tweetId) {
+  const item = tweets.find(t => String(t.id) === String(tweetId));
+  if (!item || item.source_kind !== "discovery") return;
+
+  try {
+    const result = await api.discoveryAction(tweetId, "not_interested");
+    if (!result.ok || !result.data || !result.data.success) {
+      throw new Error((result.data && (result.data.message || result.data.error)) || "隐藏失败");
+    }
+
+    recordTweetFeedback(tweetId, "not_interested", {
+      surface: "feed",
+      category: item.category || "",
+      sub_category: item.sub_category || "",
+      username: item.username || "",
+      author: item.author || ""
+    });
+
+    tweets = tweets.filter(t => String(t.id) !== String(tweetId));
+    window.tweets = tweets;
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
+    renderCategories();
+    applyFiltersAndRender(false);
+    showToast("已标记为不感兴趣，后续推荐会降低类似内容权重");
+  } catch (err) {
+    showToast("无法隐藏这条发现内容: " + err, false);
+  }
+};
+
 window.toggleXBookmark = async function(tweetId) {
       if (!isXConfigured) {
         openAuthModal();
@@ -822,15 +927,24 @@ window.toggleXBookmark = async function(tweetId) {
       const btn = document.getElementById(`btn-toggle-${tweetId}`);
       if (btn) btn.disabled = true;
       const feedbackItem = tweets.find(t => String(t.id) === String(tweetId));
+      const isDiscoveryCandidate = Boolean(
+        feedbackItem &&
+        feedbackItem.source_kind === "discovery" &&
+        feedbackItem.is_bookmark !== true
+      );
 
-      const currentlySaved = !unbookmarkedIds.has(tweetId);
+      const currentlySaved = !isDiscoveryCandidate && !unbookmarkedIds.has(tweetId);
       const action = currentlySaved ? "delete" : "create";
 
       try {
         const resp = await fetch("/api/bookmark/toggle", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tweet_id: tweetId, action: action })
+          body: JSON.stringify({
+            tweet_id: tweetId,
+            action: action,
+            source_kind: feedbackItem ? (feedbackItem.source_kind || "bookmark") : "bookmark"
+          })
         });
         const result = await resp.json();
 
@@ -847,7 +961,15 @@ window.toggleXBookmark = async function(tweetId) {
             showToast(`已成功从 𝕏 云端移出书签并从 D1 数据库移除 #${tweetId}`);
           } else {
             unbookmarkedIds.delete(tweetId);
-            showToast(`已成功重新添加至 𝕏 云端书签 #${tweetId}`);
+            if (feedbackItem) {
+              feedbackItem.source_kind = "bookmark";
+              feedbackItem.is_bookmark = true;
+            }
+            showToast(
+              isDiscoveryCandidate
+                ? `已将发现内容收藏到 𝕏 #${tweetId}`
+                : `已成功重新添加至 𝕏 云端书签 #${tweetId}`
+            );
           }
           saveUnbookmarked();
           recordTweetFeedback(tweetId, action === "delete" ? "unbookmark" : "bookmark", {
@@ -881,6 +1003,7 @@ window.updateThemeToggleUI = updateThemeToggleUI;
 window.toggleTheme = toggleTheme;
 window.checkAuthStatus = checkAuthStatus;
 window.refreshSyncStatusNotice = refreshSyncStatusNotice;
+window.refreshDiscoveryStatusNotice = refreshDiscoveryStatusNotice;
 window.renderCategories = renderCategories;
 window.openDrawer = openDrawer;
 window.closeDrawer = closeDrawer;

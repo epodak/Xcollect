@@ -228,11 +228,13 @@ async function copyTweetMarkdown(tweetId, button = null) {
  */
 function generateTweetCardHtml(item, idx = 0) {
   const tweetId = item.id;
-  const isSavedOnX = !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
+  const isDiscovery = item.source_kind === "discovery" && item.is_bookmark !== true;
+  const isSavedOnX = !isDiscovery && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const rawSubcat = (item.sub_category || "").trim();
   const displaySubcat = (rawSubcat.includes("/") ? rawSubcat.split("/").pop().trim() : rawSubcat) || (item.category || "").replace(/^\d+_/, "");
   const isBadgeActive = (window.activeSubCategory !== "ALL" && (window.activeSubCategory === rawSubcat || window.activeSubCategory === displaySubcat));
   const subcatBadge = `<span class="badge-subcat ${isBadgeActive ? 'active' : ''}" onclick="event.stopPropagation(); selectSubCategory('${escapeHtml(displaySubcat)}', '${escapeHtml(item.category)}')" title="点击在侧边栏筛选「${escapeHtml(displaySubcat)}」领域">${escapeHtml(displaySubcat)}</span>`;
+  const sourceBadge = isDiscovery ? `<span class="badge-discovery" title="由 Personal Discovery 自动发现">🔥 发现</span>` : "";
   
   const hasImages = Array.isArray(item.images) && item.images.length > 0;
   const hasVideos = Array.isArray(item.videos) && item.videos.length > 0;
@@ -290,7 +292,10 @@ function generateTweetCardHtml(item, idx = 0) {
               <div class="author-handle">@${escapeHtml(item.username || "anon")}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
             </div>
           </div>
-          ${subcatBadge}
+          <div class="card-badges">
+            ${sourceBadge}
+            ${subcatBadge}
+          </div>
         </div>
 
         <div class="card-title" onclick="openDetail('${tweetId}')" title="${escapeHtml(cleanTitle(item.title) || item.filename)}">
@@ -316,9 +321,10 @@ function generateTweetCardHtml(item, idx = 0) {
             </svg>
             <span>复制</span>
           </button>
-          <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="toggleXBookmark('${tweetId}')" title="${isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏'}">
+          <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="event.stopPropagation(); toggleXBookmark('${tweetId}')" title="${isDiscovery ? '收藏这条发现内容到 X' : (isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏')}">
             <span>${isSavedOnX ? '★ 移出' : '☆ 收藏'}</span>
           </button>
+          ${isDiscovery ? `<button type="button" class="btn-action btn-dismiss" onclick="event.stopPropagation(); dismissDiscovery('${tweetId}')" title="不再展示这条发现内容，并作为负反馈训练推荐"><span>× 不感兴趣</span></button>` : ""}
           <a class="btn-action btn-twitter" href="${item.url || 'https://x.com'}" target="_blank" rel="noopener noreferrer" onclick="if(window.recordTweetFeedback){window.recordTweetFeedback('${tweetId}', 'open_original', {surface:'feed'});}" title="前往 Twitter 页面查看或管理原推">
             <span>𝕏 原推 ↗</span>
           </a>
@@ -427,11 +433,12 @@ function renderSentinel(container, hasMore, currentCount, totalCount) {
 function updateModalBookmarkBtn() {
   if (!window.currentOpenTweet) return;
   const tweetId = window.currentOpenTweet.id;
-  const isSaved = !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
+  const isDiscovery = window.currentOpenTweet.source_kind === "discovery" && window.currentOpenTweet.is_bookmark !== true;
+  const isSaved = !isDiscovery && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const btn = document.getElementById("modalToggleBookmark");
   if (btn) {
     btn.className = `btn-action btn-bookmark ${isSaved ? 'saved' : 'unbookmarked'}`;
-    btn.innerHTML = `<span>${isSaved ? '★ 从 𝕏 云端移出书签' : '☆ 恢复添加到 𝕏 书签'}</span>`;
+    btn.innerHTML = `<span>${isSaved ? '★ 从 𝕏 云端移出书签' : (isDiscovery ? '☆ 收藏到 𝕏' : '☆ 恢复添加到 𝕏 书签')}</span>`;
   }
 }
 
@@ -680,7 +687,7 @@ function closeAuthModal() {
 }
 
 function exportBookmarks() {
-  const activeBookmarks = (window.tweets || []).filter(t => !(window.unbookmarkedIds && window.unbookmarkedIds.has(t.id)));
+  const activeBookmarks = (window.tweets || []).filter(t => t.source_kind !== "discovery" && t.is_bookmark !== false && !(window.unbookmarkedIds && window.unbookmarkedIds.has(t.id)));
   const blob = new Blob([JSON.stringify(activeBookmarks, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
