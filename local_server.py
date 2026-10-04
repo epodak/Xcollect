@@ -368,6 +368,80 @@ def resolve_bookmark_query_ids_local():
     return result
 
 
+def _expand_x_urls_local(text, entity_set):
+    text = str(text or "")
+    if not text or not isinstance(entity_set, dict):
+        return text
+    for entity in entity_set.get("urls", []) or []:
+        short = str(entity.get("url", "") or "")
+        expanded = str(entity.get("expanded_url", "") or entity.get("display_url", "") or "")
+        if short and expanded:
+            text = text.replace(short, expanded)
+    return text
+
+
+def _article_to_markdown_local(article_result):
+    if not isinstance(article_result, dict):
+        return "", ""
+    title = str(article_result.get("title", "") or "").strip()
+    content_state = article_result.get("content_state", {}) or {}
+    blocks = content_state.get("blocks", []) or []
+    if not isinstance(blocks, list):
+        blocks = []
+    parts = []
+    ordered_counter = 0
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_type = str(block.get("type", "unstyled") or "unstyled")
+        text = str(block.get("text", "") or "")
+        if block_type == "atomic" or not text:
+            continue
+        if block_type != "ordered-list-item":
+            ordered_counter = 0
+        if block_type == "header-one":
+            parts.append("# " + text)
+        elif block_type == "header-two":
+            parts.append("## " + text)
+        elif block_type == "header-three":
+            parts.append("### " + text)
+        elif block_type == "blockquote":
+            parts.append("> " + text)
+        elif block_type == "unordered-list-item":
+            parts.append("- " + text)
+        elif block_type == "ordered-list-item":
+            ordered_counter += 1
+            parts.append(str(ordered_counter) + ". " + text)
+        elif block_type == "code-block":
+            parts.append("    " + text.replace("\n", "\n    "))
+        else:
+            parts.append(text)
+    body = "\n\n".join(parts).strip()
+    if not body:
+        body = str(article_result.get("plain_text", "") or article_result.get("content", "") or "").strip()
+    return title, body
+
+
+def _extract_canonical_content_local(tweet_result, legacy):
+    article_result = (
+        (((tweet_result.get("article", {}) or {}).get("article_results", {}) or {}).get("result"))
+        or (((legacy.get("article", {}) or {}).get("article_results", {}) or {}).get("result"))
+        or ((tweet_result.get("article_results", {}) or {}).get("result"))
+    )
+    if isinstance(article_result, dict):
+        title, body = _article_to_markdown_local(article_result)
+        if body:
+            return title, body
+
+    note_result = ((((tweet_result.get("note_tweet", {}) or {}).get("note_tweet_results", {}) or {}).get("result")) or {})
+    note_text = str(note_result.get("text", "") or "")
+    if note_text:
+        return "", _expand_x_urls_local(note_text, note_result.get("entity_set", {}) or {}).strip()
+
+    legacy_text = str(legacy.get("full_text", "") or "")
+    return "", _expand_x_urls_local(legacy_text, legacy.get("entities", {}) or {}).strip()
+
+
 def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
     """Local Profile 拉取 X Bookmarks；full_scan=True 时用于安全删除对账。"""
     if max_pages is None:
@@ -399,6 +473,7 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
         "view_counts_everywhere_api_enabled": True,
         "longform_notetweets_consumption_enabled": True,
         "responsive_web_twitter_article_tweet_consumption_enabled": True,
+        "articles_preview_enabled": True,
         "longform_notetweets_rich_text_read_enabled": True,
         "longform_notetweets_inline_media_enabled": True,
         "responsive_web_enhance_cards_enabled": False,
@@ -422,6 +497,10 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
         params = {
             "variables": json.dumps(variables, separators=(",", ":")),
             "features": json.dumps(features, separators=(",", ":")),
+            "fieldToggles": json.dumps({
+                "withArticleRichContentState": True,
+                "withArticlePlainText": True,
+            }, separators=(",", ":")),
         }
 
         timeline = None
@@ -518,7 +597,7 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
                             avatar_url = avatar_url.replace(sfx, "_400x400")
                             break
 
-                full_text = legacy.get("full_text", "") or ""
+                title_hint, full_text = _extract_canonical_content_local(tweet_res, legacy)
                 fav_count = int(legacy.get("favorite_count", 0) or 0)
                 retweet_count = int(legacy.get("retweet_count", 0) or 0)
                 try:
@@ -544,8 +623,8 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
                             })
 
                 snippet = full_text.replace("\n", " ").strip()[:140]
-                first_line = full_text.splitlines()[0] if full_text else "推文"
-                display_title = first_line[:45] + ("..." if len(first_line) > 45 else "")
+                first_line = title_hint or (full_text.splitlines()[0] if full_text else "推文")
+                display_title = first_line[:72] + ("..." if len(first_line) > 72 else "")
                 cat, subcat = rule_classify_tweet(full_text, display_title)
 
                 all_tweets.append({

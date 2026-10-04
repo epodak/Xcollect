@@ -50,11 +50,42 @@ function cleanSnippet(snippet) {
 
 function cleanBodyRaw(md) {
   if (!md) return md;
-  let lines = md.split("\n");
-  if (lines.length > 0 && lines[0].startsWith("# ")) {
-    lines.shift();
+  return String(md)
+    .replace(/^>\s*\*\*领域分类\*\*[:：]\s*`?【[^】]*】`?\s*\n?/m, "")
+    .trim();
+}
+
+function getVideoSource(video) {
+  if (!video) return "";
+  if (typeof video === "string") return video;
+  if (typeof video === "object") return video.url || "";
+  return "";
+}
+
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(String(value || ""), window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+  } catch (e) {
+    return "";
   }
-  return lines.join("\n").replace(/^>\s*\*\*领域分类\*\*[:：]\s*`?【[^】]*】`?\s*\n?/m, "").trim();
+  return "";
+}
+
+function prepareReaderBody(tweet) {
+  const body = tweet.body_raw ? cleanBodyRaw(tweet.body_raw) : cleanSnippet(tweet.snippet);
+  const title = cleanTitle(tweet.title || "");
+  if (!body || !title) return body || "";
+
+  const lines = body.split("\n");
+  const first = (lines[0] || "").replace(/^#{1,3}\s*/, "").trim();
+  const normalizedTitle = title.replace(/\.\.\.$/, "").trim();
+
+  // Article / Note Tweet 的首行常被同时投影成卡片标题；阅读器里避免重复一次。
+  if (lines.length > 1 && normalizedTitle && first.startsWith(normalizedTitle)) {
+    return lines.slice(1).join("\n").replace(/^\s+/, "");
+  }
+  return body;
 }
 
 /**
@@ -71,25 +102,28 @@ function generateTweetCardHtml(item, idx = 0) {
   const hasImages = Array.isArray(item.images) && item.images.length > 0;
   const hasVideos = Array.isArray(item.videos) && item.videos.length > 0;
   const hasMedia = hasImages || hasVideos;
+  const primaryVideoUrl = hasVideos ? safeExternalUrl(getVideoSource(item.videos[0])) : "";
+  const primaryImageUrl = hasImages ? safeExternalUrl(item.images[0]) : "";
+  const previewText = escapeHtml(cleanSnippet(item.snippet) || "暂无正文摘要");
 
   let contentHtml = "";
   if (hasVideos) {
     contentHtml = `
       <div class="card-snippet media-mode" onclick="openDetail('${tweetId}')">
-        ${cleanSnippet(item.snippet) || "暂无正文摘要"}
+        ${previewText}
       </div>
       <div class="card-media-preview card-media-video" onclick="event.stopPropagation()">
-        <video src="${item.videos[0]}" preload="metadata" controls playsinline></video>
+        <video src="${escapeHtml(primaryVideoUrl)}" preload="metadata" controls playsinline></video>
         <div class="media-type-badge video-badge">▶ 视频</div>
       </div>
     `;
   } else if (hasImages) {
     contentHtml = `
       <div class="card-snippet media-mode" onclick="openDetail('${tweetId}')">
-        ${cleanSnippet(item.snippet) || "暂无正文摘要"}
+        ${previewText}
       </div>
       <div class="card-media-preview card-media-image" onclick="openDetail('${tweetId}')">
-        <img src="${item.images[0]}" alt="推文配图" loading="lazy">
+        <img src="${escapeHtml(primaryImageUrl)}" alt="推文配图" loading="lazy">
         ${item.images.length > 1 ? `<div class="media-type-badge img-badge">🖼️ 1/${item.images.length}</div>` : ''}
       </div>
     `;
@@ -97,9 +131,9 @@ function generateTweetCardHtml(item, idx = 0) {
     // 纯文字版专属排版：释放 175px 媒体空间，展示 6~7 行深度干货摘要，视觉充实整齐绝不空洞
     contentHtml = `
       <div class="card-text-rich-wrap" onclick="openDetail('${tweetId}')" title="点击查看完整推文正文">
-        <div class="card-text-rich-tag">📝 核心干货要点</div>
+        <div class="card-text-rich-tag">📝 内容预览</div>
         <div class="card-snippet text-rich">
-          ${cleanSnippet(item.snippet) || "暂无正文摘要"}
+          ${previewText}
         </div>
       </div>
     `;
@@ -112,20 +146,20 @@ function generateTweetCardHtml(item, idx = 0) {
           <div class="author-info">
             <div class="author-avatar">
               ${(item.avatar || "")
-                ? `<img class="author-avatar-img" src="${item.avatar}" alt="${(item.author || item.username || "?")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; var fb=this.nextElementSibling; if(fb){fb.style.display='flex';}">
+                ? `<img class="author-avatar-img" src="${item.avatar}" alt="${escapeHtml(item.author || item.username || "?")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; var fb=this.nextElementSibling; if(fb){fb.style.display='flex';}">
                    <span class="author-avatar-fallback" style="display:none">${(item.author || item.username || "?").charAt(0).toUpperCase()}</span>`
                 : `<span class="author-avatar-fallback">${(item.author || item.username || "?").charAt(0).toUpperCase()}</span>`}
             </div>
             <div class="author-meta">
-              <div class="author-name" title="${item.author || item.username}">${item.author || item.username}</div>
-              <div class="author-handle">@${item.username || "anon"}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
+              <div class="author-name" title="${escapeHtml(item.author || item.username)}">${escapeHtml(item.author || item.username)}</div>
+              <div class="author-handle">@${escapeHtml(item.username || "anon")}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
             </div>
           </div>
           ${subcatBadge}
         </div>
 
-        <div class="card-title" onclick="openDetail('${tweetId}')" title="${cleanTitle(item.title) || item.filename}">
-          ${cleanTitle(item.title) || item.filename}
+        <div class="card-title" onclick="openDetail('${tweetId}')" title="${escapeHtml(cleanTitle(item.title) || item.filename)}">
+          ${escapeHtml(cleanTitle(item.title) || item.filename)}
         </div>
 
         <div class="card-body-content">
@@ -259,27 +293,62 @@ function updateModalBookmarkBtn() {
   }
 }
 
-// 打开详情模态框
+// 打开 Canonical Document 阅读器
 window.openDetail = function(tweetId) {
   const tweet = window.tweets && window.tweets.find(t => t.id === tweetId || t.filename === tweetId);
   if (!tweet) return;
   window.currentOpenTweet = tweet;
 
   const rawSub = (tweet.sub_category || "").trim();
-  const displaySub = (rawSub.includes("/") ? rawSub.split("/").pop().trim() : rawSub) || (tweet.category || "").replace(/^\d+_/, "");
+  const displaySub = (rawSub.includes("/") ? rawSub.split("/").pop().trim() : rawSub)
+    || (tweet.category || "").replace(/^\d+_/, "");
+  const title = cleanTitle(tweet.title || "") || "X 原文";
+  const readerBody = prepareReaderBody(tweet);
+  const hasCanonicalBody = Boolean((tweet.body_raw || "").trim());
+  const likelyLegacyTruncation = !hasCanonicalBody
+    || (/https:\/\/t\.co\/[A-Za-z0-9]+\s*$/.test(tweet.body_raw || "") && (tweet.body_raw || "").length < 600);
+
   document.getElementById("modalSubcat").textContent = displaySub;
-  document.getElementById("modalAuthor").textContent = `${tweet.author} (@${tweet.username})`;
-  document.getElementById("modalStats").textContent = `❤️ ${formatNumber(tweet.likes)} 赞 · 🔁 ${formatNumber(tweet.retweets)} 转 · 👀 ${formatNumber(tweet.views)} 阅`;
-  document.getElementById("modalTwitterLink").href = tweet.url || "https://x.com";
+  document.getElementById("modalAuthor").textContent = `${tweet.author || tweet.username || ""} (@${tweet.username || ""})`;
+  document.getElementById("modalTitle").textContent = title;
+  document.getElementById("modalPublished").textContent = [
+    tweet.created_at ? `发布于 ${formatDate(tweet.created_at)}` : "",
+    hasCanonicalBody ? `${String(tweet.body_raw).length.toLocaleString()} 字符` : ""
+  ].filter(Boolean).join(" · ");
+
+  const contentState = document.getElementById("modalContentState");
+  if (contentState) {
+    contentState.textContent = likelyLegacyTruncation
+      ? "正文可能未完整同步"
+      : "完整正文 · Canonical";
+  }
+
+  document.getElementById("modalStats").textContent =
+    `❤️ ${formatNumber(tweet.likes)} 赞 · 🔁 ${formatNumber(tweet.retweets)} 转 · 👀 ${formatNumber(tweet.views)} 阅`;
+
+  const sourceUrl = safeExternalUrl(tweet.url || "https://x.com") || "https://x.com";
+  document.getElementById("modalTwitterLink").href = sourceUrl;
 
   updateModalBookmarkBtn();
   document.getElementById("modalToggleBookmark").onclick = () => window.toggleXBookmark(tweetId);
 
-  // 渲染 Markdown（剥离与徽章重复的【分类】前缀和「领域分类」引用行）
   const bodyContainer = document.getElementById("modalBody");
-  const modalMd = tweet.body_raw ? cleanBodyRaw(tweet.body_raw) : cleanSnippet(tweet.snippet);
-  bodyContainer.innerHTML = parseMarkdownToHtml(modalMd, tweet.images, tweet.videos);
+  let bodyHtml = "";
+  if (likelyLegacyTruncation) {
+    bodyHtml += `
+      <div class="reader-incomplete">
+        当前记录可能仍是旧版 legacy 预览，而不是完整 Note Tweet / X Article。
+        点击“立即同步”会触发完整 reconciliation，并重新写入 canonical 正文；也可以直接在 X 查看原文。
+      </div>
+    `;
+  }
 
+  bodyHtml += parseMarkdownToHtml(
+    readerBody || cleanSnippet(tweet.snippet) || "",
+    tweet.images,
+    tweet.videos
+  );
+  bodyContainer.innerHTML = bodyHtml;
   document.getElementById("detailModal").classList.add("active");
 };
 
@@ -288,33 +357,165 @@ function closeModal() {
   window.currentOpenTweet = null;
 }
 
-// 简易 Markdown 解析器
-function parseMarkdownToHtml(md, images, videos) {
-  if (!md) return "<p>暂无内容</p>";
-  let html = md
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-    .replace(/\*(.*)\*/gim, '<em>$1</em>')
-    .replace(/`([^`]+)`/gim, '<code style="background:rgb(var(--c-sunken));padding:2px 6px;border-radius:4px;color:rgb(var(--c-brand-bright));">$1</code>')
-    .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/gim, '<div style="margin-top:1.2rem;border-radius:8px;overflow:hidden;border:1px solid rgb(var(--c-line));"><img src="$2" alt="$1" style="width:100%;display:block;border-radius:8px;" loading="lazy" referrerpolicy="no-referrer"></div>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank" style="color:rgb(var(--c-brand));">$1</a>')
-    .replace(/\n\n/gim, '<br><br>');
+// Canonical Markdown renderer：先转义源文本，再恢复有限、安全的 Markdown 语义。
+function renderInlineMarkdown(text) {
+  const tokens = [];
+  const stash = (html) => {
+    const marker = `@@XCOLLECT_TOKEN_${tokens.length}@@`;
+    tokens.push(html);
+    return marker;
+  };
 
-  if (videos && videos.length > 0) {
-    videos.forEach(vUrl => {
-      html += `<div style="margin-top:1.5rem;border-radius:10px;overflow:hidden;background:#000;border:1px solid rgb(var(--c-line));"><video src="${vUrl}" controls playsinline preload="auto" style="width:100%;max-height:480px;display:block;outline:none;"></video></div>`;
-    });
-  } else if (images && images.length > 0) {
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:0.75rem;margin-top:1.5rem;">';
-    images.forEach(imgUrl => {
-      html += `<div style="border-radius:8px;overflow:hidden;border:1px solid rgb(var(--c-line));"><img src="${imgUrl}" style="width:100%;height:220px;object-fit:cover;display:block;" loading="lazy" referrerpolicy="no-referrer"></div>`;
-    });
-    html += '</div>';
-  }
+  let raw = String(text || "");
+
+  raw = raw.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => {
+    const safe = safeExternalUrl(url);
+    if (!safe) return alt || "";
+    return stash(`<img src="${escapeHtml(safe)}" alt="${escapeHtml(alt || "")}" loading="lazy" referrerpolicy="no-referrer">`);
+  });
+
+  raw = raw.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => {
+    const safe = safeExternalUrl(url);
+    if (!safe) return label;
+    return stash(`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`);
+  });
+
+  raw = raw.replace(/https?:\/\/[^\s<>()]+/g, (url) => {
+    const safe = safeExternalUrl(url);
+    if (!safe) return url;
+    return stash(`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`);
+  });
+
+  let html = escapeHtml(raw)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  html = html.replace(/@@XCOLLECT_TOKEN_(\d+)@@/g, (_, index) => tokens[Number(index)] || "");
   return html;
+}
+
+function parseMarkdownToHtml(md, images, videos) {
+  if (!md) {
+    return `<div class="canonical-prose"><p>暂无可渲染正文。请在 X 打开原文。</p></div>`;
+  }
+
+  const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+  const parts = [];
+  let paragraph = [];
+  let listType = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    parts.push(`<p>${paragraph.map(renderInlineMarkdown).join("<br>")}</p>`);
+    paragraph = [];
+  };
+
+  const closeList = () => {
+    if (!listType) return;
+    parts.push(`</${listType}>`);
+    listType = null;
+  };
+
+  const openList = (type) => {
+    if (listType === type) return;
+    closeList();
+    parts.push(`<${type}>`);
+    listType = type;
+  };
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || "");
+
+    if (!line.trim()) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    if (/^\s{4}/.test(line)) {
+      flushParagraph();
+      closeList();
+      parts.push(`<pre><code>${escapeHtml(line.replace(/^\s{4}/, ""))}</code></pre>`);
+      continue;
+    }
+
+    if (/^---+$/.test(line.trim())) {
+      flushParagraph();
+      closeList();
+      parts.push("<hr>");
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const level = heading[1].length;
+      parts.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      closeList();
+      parts.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+      continue;
+    }
+
+    const unordered = line.match(/^[-*]\s+(.+)$/);
+    if (unordered) {
+      flushParagraph();
+      openList("ul");
+      parts.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
+      continue;
+    }
+
+    const ordered = line.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      openList("ol");
+      parts.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+      continue;
+    }
+
+    if (listType) closeList();
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  closeList();
+
+  let html = `<div class="canonical-prose">${parts.join("")}</div>`;
+  const bodyText = String(md);
+  const mediaParts = [];
+
+  if (Array.isArray(videos)) {
+    for (const video of videos) {
+      const src = safeExternalUrl(getVideoSource(video));
+      if (!src) continue;
+      const poster = video && typeof video === "object" ? safeExternalUrl(video.poster || "") : "";
+      mediaParts.push(`<div class="canonical-media"><video src="${escapeHtml(src)}" ${poster ? `poster="${escapeHtml(poster)}"` : ""} controls playsinline preload="metadata"></video></div>`);
+    }
+  }
+
+  if (Array.isArray(images)) {
+    const remainingImages = images
+      .map(safeExternalUrl)
+      .filter(Boolean)
+      .filter((url) => !bodyText.includes(url));
+
+    if (remainingImages.length) {
+      mediaParts.push(
+        `<div class="canonical-media canonical-media-grid">` +
+        remainingImages.map((url) => `<img src="${escapeHtml(url)}" alt="原推媒体" loading="lazy" referrerpolicy="no-referrer">`).join("") +
+        `</div>`
+      );
+    }
+  }
+
+  return html + mediaParts.join("");
 }
 
 function openAuthModal() {

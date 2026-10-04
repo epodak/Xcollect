@@ -378,17 +378,23 @@
 
   <!-- 详情阅读模态框 Detail Modal -->
   <div class="modal-overlay" id="detailModal">
-    <div class="modal-card">
+    <div class="modal-card modal-reader-card">
       <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <div class="modal-reader-meta">
           <span class="badge-subcat" id="modalSubcat">领域分类</span>
-          <span style="font-size: 0.8rem; color: rgb(var(--c-fg-subtle)); font-family: var(--font-mono);" id="modalAuthor">@author</span>
+          <span class="modal-author" id="modalAuthor">@author</span>
+          <span class="modal-content-state" id="modalContentState">完整正文 · Canonical</span>
         </div>
-        <button class="modal-close" id="modalCloseBtn">&times;</button>
+        <button class="modal-close" id="modalCloseBtn" aria-label="关闭阅读器">&times;</button>
       </div>
 
-      <div class="modal-body" id="modalBody">
-        <!-- Markdown 转渲染内容 -->
+      <div class="modal-reader-title-wrap">
+        <h1 class="modal-reader-title" id="modalTitle">原文标题</h1>
+        <div class="modal-reader-date" id="modalPublished"></div>
+      </div>
+
+      <div class="modal-body modal-reader-body" id="modalBody">
+        <!-- Canonical Document 渲染内容 -->
       </div>
 
       <div class="modal-footer">
