@@ -22,7 +22,7 @@ try {
 
 // 1. 执行门禁冒烟与预部署配置对齐
 console.log('🔍 执行本地门禁自检与配置投影...');
-execSync('python local_server.py --check', { stdio: 'inherit', cwd: root });
+execSync('pnpm run check', { stdio: 'inherit', cwd: root });
 execSync('python scripts/sync_config.py', { stdio: 'inherit', cwd: root });
 execSync('python scripts/check_cloud_schedule.py', { stdio: 'inherit', cwd: root });
 
