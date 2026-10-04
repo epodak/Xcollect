@@ -1,0 +1,97 @@
+[
+  {
+    "category": "01_人工智能与Agent",
+    "sub_category": "Coding Agent/智能编程",
+    "queries": [
+      "\"coding agent\" OR \"agentic coding\" -filter:replies -filter:retweets",
+      "\"Claude Code\" OR \"AI coding agent\" -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "01_人工智能与Agent",
+    "sub_category": "MCP协议与工具扩展",
+    "queries": [
+      "\"Model Context Protocol\" OR \"MCP server\" -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "01_人工智能与Agent",
+    "sub_category": "AI前沿与模型技术",
+    "queries": [
+      "\"AI agent\" OR \"agentic system\" -filter:replies -filter:retweets",
+      "\"reasoning model\" OR \"LLM reasoning\" -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "02_技术架构与开发",
+    "sub_category": "云原生与边缘计算",
+    "queries": [
+      "\"Cloudflare Workers\" OR \"edge computing\" OR serverless -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "02_技术架构与开发",
+    "sub_category": "高性能与系统架构",
+    "queries": [
+      "\"distributed systems\" OR \"systems performance\" OR Rust -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "02_技术架构与开发",
+    "sub_category": "数据库与存储架构",
+    "queries": [
+      "\"database architecture\" OR postgres OR sqlite OR vector database -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "03_开源精选与工具",
+    "sub_category": "GitHub高星开源项目",
+    "queries": [
+      "\"open source\" github \"developer tool\" -filter:replies -filter:retweets",
+      "github repo CLI terminal open source -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "03_开源精选与工具",
+    "sub_category": "开发者生产力工具",
+    "queries": [
+      "\"developer productivity\" OR \"dev tool\" OR CLI -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "04_产品设计与思考",
+    "sub_category": "产品交互与体验设计",
+    "queries": [
+      "\"product design\" UX interaction -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "04_产品设计与思考",
+    "sub_category": "产品孵化与商业思考",
+    "queries": [
+      "\"indie hacker\" OR \"product launch\" OR startup product -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "04_产品设计与思考",
+    "sub_category": "UI/UX与三维动效",
+    "queries": [
+      "webgl three.js interaction design -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "05_前沿资讯与研读",
+    "sub_category": "前沿论文与深度研读",
+    "queries": [
+      "\"new paper\" OR arxiv OR preprint AI systems -filter:replies -filter:retweets",
+      "research paper benchmark architecture -filter:replies -filter:retweets"
+    ]
+  },
+  {
+    "category": "05_前沿资讯与研读",
+    "sub_category": "行业前沿与长文洞察",
+    "queries": [
+      "\"deep dive\" technology industry -filter:replies -filter:retweets"
+    ]
+  }
+]

@@ -40,6 +40,10 @@ query_id_bookmarks = "XD0ViOeSOW4YoeNTGjVaYw"
 query_id_bookmarks_fallbacks = ["2neUNDqrrFzbLui8yallcQ", "i8QZ1qqy36ffA3bxfTaf7w"]
 query_id_create = "aoDbu3RHznuiSkQ9aNM67Q"
 query_id_delete = "Wlmlj2-xzyS1GN3a6cj-mQ"
+# SearchTimeline 的 queryId / feature flags / GET|POST transport 都可能随 Web 构建变化；
+# 运行时优先从社区 registry 动态解析，以下只作离线 fallback。
+query_id_search = "Yw6L66Pw54NHKuq4Dp7b4Q"
+query_id_search_fallbacks = []
 
 [taxonomy]
 default_categories = [
@@ -61,6 +65,25 @@ workers_ai_models = [
   "@cf/meta/llama-3.2-3b-instruct",
   "@cf/meta/llama-3.2-1b-instruct"
 ]
+
+[discovery]
+enabled = true
+interval_hours = 2.0
+queries_per_run = 3
+search_count = 60
+max_pages_per_query = 1
+cheap_penalty_threshold = 0.42
+min_text_chars = 36
+min_final_score = 0.50
+min_relevance = 0.45
+min_quality = 0.35
+ai_reject_probability = 0.60
+ai_batch_max_candidates = 120
+ai_judge_model = "@cf/meta/llama-4-scout-17b-16e-instruct"
+daily_limit = 300
+author_daily_cap = 3
+subcategory_daily_cap = 24
+category_daily_ratio_cap = 0.35
 
 [ranking]
 # related-hot 是推荐排序，不是简单互动量排序；所有正向权重之和应为 1.0。

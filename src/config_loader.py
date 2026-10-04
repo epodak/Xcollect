@@ -18,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_TOML_PATH = BASE_DIR / "config.toml"
 ENV_PATH = BASE_DIR / ".env"
 PROMPT_CLASSIFY_PATH = BASE_DIR / "prompts" / "classify_system.txt"
+DISCOVERY_QUERIES_PATH = BASE_DIR / "prompts" / "discovery_queries.json"
 
 
 def parse_simple_toml(content: str) -> dict:
@@ -139,6 +140,9 @@ class AppConfig:
         self.query_id_bookmarks_fallbacks = list(fallbacks) if isinstance(fallbacks, list) else []
         self.query_id_create = str(twitter_cfg.get("query_id_create", ""))
         self.query_id_delete = str(twitter_cfg.get("query_id_delete", ""))
+        self.query_id_search = str(twitter_cfg.get("query_id_search", ""))
+        search_fallbacks = twitter_cfg.get("query_id_search_fallbacks", [])
+        self.query_id_search_fallbacks = list(search_fallbacks) if isinstance(search_fallbacks, list) else []
 
         # 分类专区 (严格来自 config.toml 单一真源)
         taxonomy_cfg = parsed.get("taxonomy", {})
@@ -150,6 +154,28 @@ class AppConfig:
         self.custom_ai_base = str(ai_cfg.get("custom_api_base", "https://api.deepseek.com/v1"))
         self.custom_ai_model = str(ai_cfg.get("custom_model", "deepseek-chat"))
         self.workers_ai_models = list(ai_cfg.get("workers_ai_models", []))
+
+        # Discovery Plane 参数（严格来自 config.toml 单一真源）
+        discovery_cfg = parsed.get("discovery", {})
+        self.discovery_enabled = bool(discovery_cfg.get("enabled", True))
+        self.discovery_interval_hours = float(discovery_cfg.get("interval_hours", 2.0))
+        self.discovery_queries_per_run = int(discovery_cfg.get("queries_per_run", 3))
+        self.discovery_search_count = int(discovery_cfg.get("search_count", 60))
+        self.discovery_max_pages_per_query = int(discovery_cfg.get("max_pages_per_query", 1))
+        self.discovery_cheap_penalty_threshold = float(discovery_cfg.get("cheap_penalty_threshold", 0.42))
+        self.discovery_min_text_chars = int(discovery_cfg.get("min_text_chars", 36))
+        self.discovery_min_final_score = float(discovery_cfg.get("min_final_score", 0.50))
+        self.discovery_min_relevance = float(discovery_cfg.get("min_relevance", 0.45))
+        self.discovery_min_quality = float(discovery_cfg.get("min_quality", 0.35))
+        self.discovery_ai_reject_probability = float(discovery_cfg.get("ai_reject_probability", 0.60))
+        self.discovery_ai_batch_max_candidates = int(discovery_cfg.get("ai_batch_max_candidates", 120))
+        self.discovery_ai_judge_model = str(
+            discovery_cfg.get("ai_judge_model", "@cf/meta/llama-4-scout-17b-16e-instruct")
+        )
+        self.discovery_daily_limit = int(discovery_cfg.get("daily_limit", 300))
+        self.discovery_author_daily_cap = int(discovery_cfg.get("author_daily_cap", 3))
+        self.discovery_subcategory_daily_cap = int(discovery_cfg.get("subcategory_daily_cap", 24))
+        self.discovery_category_daily_ratio_cap = float(discovery_cfg.get("category_daily_ratio_cap", 0.35))
 
         # Related-hot 排名与训练 reward（严格来自 config.toml 单一真源）
         ranking_cfg = parsed.get("ranking", {})
@@ -195,6 +221,28 @@ class AppConfig:
                 self.classify_prompt_template = PROMPT_CLASSIFY_CONTENT.strip()
             except ImportError:
                 pass
+
+        # Discovery query seeds are a business asset, mirrored into Worker code
+        # exactly like prompts so edge runtime never depends on a writable disk.
+        discovery_queries_raw = "[]"
+        if DISCOVERY_QUERIES_PATH.exists():
+            try:
+                with open(DISCOVERY_QUERIES_PATH, "r", encoding="utf-8") as f:
+                    discovery_queries_raw = f.read()
+            except Exception:
+                pass
+        if not discovery_queries_raw.strip() or discovery_queries_raw.strip() == "[]":
+            try:
+                from _config_data import DISCOVERY_QUERIES_CONTENT
+                discovery_queries_raw = DISCOVERY_QUERIES_CONTENT
+            except ImportError:
+                pass
+        try:
+            import json as _json
+            parsed_queries = _json.loads(discovery_queries_raw or "[]")
+            self.discovery_queries = parsed_queries if isinstance(parsed_queries, list) else []
+        except Exception:
+            self.discovery_queries = []
 
         # 3. 读取本地私有敏感凭据 (.env)
         self.x_auth_token = os.environ.get("X_AUTH_TOKEN", "")

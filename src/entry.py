@@ -18,6 +18,12 @@ from storage import (
     batch_classify_pending,
     record_feedback_event,
 )
+from discovery import (
+    get_daily_feed,
+    get_discovery_status,
+    run_discovery_cycle,
+    set_candidate_state,
+)
 
 try:
     from js import Response, Object as JsObject
@@ -74,6 +80,7 @@ async def on_fetch(request, env):
 
             tweet_id = str(data.get("tweet_id", ""))
             action = data.get("action", "delete")
+            source_kind = str(data.get("source_kind", "bookmark") or "bookmark")
             auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
             ct0 = getattr(env, "X_CT0", "") or ""
 
@@ -89,6 +96,8 @@ async def on_fetch(request, env):
 
             if action == "delete":
                 await delete_tweet_from_storage(env, tweet_id)
+            elif action == "create" and source_kind == "discovery":
+                await set_candidate_state(env, tweet_id, "saved")
 
             return json_resp({
                 "success": True,
@@ -133,9 +142,63 @@ async def on_fetch(request, env):
         if path == "/api/tweets":
             fresh = query.get("fresh", ["0"])[0] == "1"
             res = await load_tweets(env, bypass_cache=fresh)
-            # 书签是用户私有状态，禁止 CDN public cache / stale-while-revalidate。
-            # 浏览器端已有 localStorage SWR；网络层始终返回 D1 当前状态。
+            # Bookmarks remain the durable knowledge-base endpoint.
             return json_resp(res, 200, cache_seconds=0)
+
+        if path == "/api/feed":
+            fresh = query.get("fresh", ["0"])[0] == "1"
+            bookmarks = await load_tweets(env, bypass_cache=fresh)
+            bookmark_items = bookmarks.get("data", []) if bookmarks.get("success") else []
+            for item in bookmark_items:
+                item["source_kind"] = "bookmark"
+                item["is_bookmark"] = True
+
+            discovery_items = await get_daily_feed(env)
+            bookmark_ids = {str(item.get("id", "")) for item in bookmark_items}
+            merged = list(bookmark_items)
+            merged.extend(
+                item for item in discovery_items
+                if str(item.get("id", "")) not in bookmark_ids
+            )
+            return json_resp({
+                "success": bool(bookmarks.get("success", True)),
+                "source": "Bookmarks + Daily Discovery",
+                "total": len(merged),
+                "bookmark_count": len(bookmark_items),
+                "discovery_count": len(merged) - len(bookmark_items),
+                "preference_evidence_pairs": bookmarks.get("preference_evidence_pairs", 0),
+                "data": merged,
+            }, 200, cache_seconds=0)
+
+        if path == "/api/discovery/status":
+            return json_resp(await get_discovery_status(env), 200, cache_seconds=0)
+
+        if path == "/api/discovery/run" and method == "POST":
+            status_code, payload = await run_discovery_cycle(env, force=True)
+            return json_resp(payload, status_code, cache_seconds=0)
+
+        if path == "/api/discovery/action" and method == "POST":
+            body_text = await request.text()
+            try:
+                data = json.loads(body_text)
+            except Exception:
+                return json_resp({"success": False, "error": "Invalid JSON"}, 400)
+
+            tweet_id = str(data.get("tweet_id", "") or "")
+            action = str(data.get("action", "") or "")
+            state_map = {
+                "not_interested": "hidden",
+                "hide": "hidden",
+                "saved": "saved",
+            }
+            state = state_map.get(action, action)
+            ok, msg = await set_candidate_state(env, tweet_id, state)
+            return json_resp({
+                "success": ok,
+                "message": msg,
+                "tweet_id": tweet_id,
+                "state": state,
+            }, 200 if ok else 400, cache_seconds=0)
 
         if path == "/api/bookmarks/classify" and method == "POST":
             ok, msg, items = await batch_classify_pending(env)
@@ -173,16 +236,51 @@ async def on_scheduled(event, env, ctx):
     Cron 是 Cloud Profile 的主同步路径；网页按钮只是 force-sync / diagnostics。
     """
     cron_expr = getattr(event, "cron", "") or "scheduled"
-    status_code, payload = await perform_cloud_sync(
-        env,
-        trigger=f"cron:{cron_expr}",
-    )
 
-    # 抛错让 Cloudflare Cron Past Events / Observability 正确标记失败，
-    # 而不是把失败吞成一次“成功执行”。
-    if status_code >= 400 or not payload.get("success"):
-        raise RuntimeError(
-            f"Xcollect scheduled sync failed: "
-            f"{payload.get('error', 'UNKNOWN')} - {payload.get('message', '')}"
+    try:
+        bookmark_status, bookmark_payload = await perform_cloud_sync(
+            env,
+            trigger=f"cron:{cron_expr}",
         )
+    except Exception as err:
+        bookmark_status = 500
+        bookmark_payload = {
+            "success": False,
+            "error": "BOOKMARK_CRON_EXCEPTION",
+            "message": str(err),
+        }
+
+    try:
+        discovery_status, discovery_payload = await run_discovery_cycle(
+            env,
+            force=False,
+        )
+    except Exception as err:
+        discovery_status = 500
+        discovery_payload = {
+            "success": False,
+            "error": "DISCOVERY_CRON_EXCEPTION",
+            "message": str(err),
+        }
+
+    failures = []
+    if bookmark_status >= 400 or not bookmark_payload.get("success"):
+        failures.append(
+            "bookmarks="
+            + str(bookmark_payload.get("error", "UNKNOWN"))
+            + ":"
+            + str(bookmark_payload.get("message", ""))
+        )
+    if discovery_status >= 400 or not discovery_payload.get("success"):
+        failures.append(
+            "discovery="
+            + str(discovery_payload.get("error", "UNKNOWN"))
+            + ":"
+            + str(discovery_payload.get("message", ""))
+        )
+
+    # The planes are independent: one failure must not prevent the other from
+    # running, but Cron observability still needs the composite invocation to fail.
+    if failures:
+        raise RuntimeError("Xcollect scheduled jobs failed: " + " | ".join(failures))
 

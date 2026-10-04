@@ -42,9 +42,10 @@ const api = {
     return await resp.json();
   },
 
-  // 获取聚合列表；fresh=true 时绕过 HTTP 缓存用于同步后的持久化层 read-back
+  // 获取阅读 Feed：durable bookmarks + 当日 discovery daily_feed。
+  // /api/tweets 仍保留为纯书签知识库端点。
   async getTweets(fresh = false) {
-    const url = fresh ? `/api/tweets?fresh=1&_=${Date.now()}` : "/api/tweets";
+    const url = fresh ? `/api/feed?fresh=1&_=${Date.now()}` : "/api/feed";
     const resp = await fetch(url, fresh ? { cache: "no-store" } : undefined);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.json();
@@ -146,6 +147,31 @@ const api = {
       localStorage.setItem(key, JSON.stringify(remaining));
     } catch (e) {}
     return { flushed, remaining: remaining.length };
+  },
+
+  async getDiscoveryStatus() {
+    const resp = await fetch("/api/discovery/status", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.json();
+  },
+
+  async runDiscovery() {
+    const resp = await fetch("/api/discovery/run", {
+      method: "POST",
+      cache: "no-store"
+    });
+    const data = await resp.json();
+    return { ok: resp.ok, data };
+  },
+
+  async discoveryAction(tweetId, action) {
+    const resp = await fetch("/api/discovery/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tweet_id: String(tweetId || ""), action: String(action || "") })
+    });
+    const data = await resp.json();
+    return { ok: resp.ok, data };
   },
 
   // 触发边缘 AI 深度分类

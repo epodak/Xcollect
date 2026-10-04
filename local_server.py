@@ -898,6 +898,45 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             }, ensure_ascii=False).encode("utf-8"))
             return
 
+        if parsed.path == "/api/feed":
+            data, preference_profile = apply_preference_profile(
+                load_local_tweets(),
+                load_local_feedback(),
+            )
+            data = enrich_related_hot_many(data)
+            for item in data:
+                item["source_kind"] = "bookmark"
+                item["is_bookmark"] = True
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "source": "Local Bookmarks",
+                "storage_profile": "local",
+                "total": len(data),
+                "bookmark_count": len(data),
+                "discovery_count": 0,
+                "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
+                "data": data
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/discovery/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "available": False,
+                "enabled": False,
+                "storage_profile": "local",
+                "message": "Global Discovery 当前只在 Personal Cloud / D1 Profile 运行。"
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
         if parsed.path == "/api/bookmarks/sync":
             status, payload = sync_local_bookmarks()
             self.send_response(status)
@@ -949,6 +988,27 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
             return
         
+        if parsed.path == "/api/discovery/run":
+            self.send_response(409)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": False,
+                "error": "DISCOVERY_CLOUD_ONLY",
+                "message": "Global Discovery 需要 Personal Cloud / D1 / Workers AI。"
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/discovery/action":
+            self.send_response(409)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": False,
+                "error": "DISCOVERY_CLOUD_ONLY"
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
         if parsed.path == "/api/feedback":
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)

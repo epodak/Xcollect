@@ -13,7 +13,11 @@ import json
 import urllib.parse
 
 from config_loader import CONFIG
-from classifier import rule_classify_tweet
+
+try:
+    from classifier import rule_classify_tweet
+except ImportError:
+    from src.classifier import rule_classify_tweet
 
 try:
     from js import Headers, Object as JsObject, fetch as js_fetch
@@ -26,6 +30,9 @@ TWITTER_BEARER = CONFIG.twitter_bearer
 QUERY_ID_CREATE = CONFIG.query_id_create
 QUERY_ID_DELETE = CONFIG.query_id_delete
 _BOOKMARK_QUERY_IDS_CACHE = None
+_SEARCH_QUERY_IDS_CACHE = None
+_SEARCH_FEATURES_CACHE = None
+_SEARCH_METHOD_CACHE = None
 
 BOOKMARK_FEATURES = {
     "graphql_timeline_v2_bookmark_timeline": True,
@@ -93,7 +100,7 @@ def extract_avatar(user_result: dict) -> str:
     return normalize_avatar_url(url)
 
 
-def build_x_headers(auth_token: str, ct0: str):
+def build_x_headers(auth_token: str, ct0: str, referer: str = "https://x.com/i/bookmarks"):
     if Headers is None:
         return None
     h = Headers.new()
@@ -105,7 +112,7 @@ def build_x_headers(auth_token: str, ct0: str):
     h.set("accept", "*/*")
     h.set("accept-language", "en-US,en;q=0.9")
     h.set("content-type", "application/json")
-    h.set("referer", "https://x.com/i/bookmarks")
+    h.set("referer", referer)
     h.set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
     h.set("cookie", f"auth_token={auth_token}; ct0={ct0};")
     return h
@@ -146,6 +153,39 @@ async def resolve_bookmark_query_ids() -> list[str]:
     candidates.extend(getattr(CONFIG, "query_id_bookmarks_fallbacks", []) or [])
     _BOOKMARK_QUERY_IDS_CACHE = _dedupe(candidates)
     return list(_BOOKMARK_QUERY_IDS_CACHE)
+
+
+async def resolve_search_query_ids() -> list[str]:
+    """Resolve SearchTimeline query IDs plus live feature/method metadata."""
+    global _SEARCH_QUERY_IDS_CACHE, _SEARCH_FEATURES_CACHE, _SEARCH_METHOD_CACHE
+    if _SEARCH_QUERY_IDS_CACHE:
+        return list(_SEARCH_QUERY_IDS_CACHE)
+
+    candidates = []
+    registry_url = getattr(CONFIG, "query_id_registry_url", "") or ""
+    if registry_url and js_fetch is not None:
+        try:
+            resp = await js_fetch(registry_url)
+            if int(getattr(resp, "status", 200) or 200) == 200:
+                payload = json.loads(await resp.text())
+                operation = payload.get("SearchTimeline", {}) if isinstance(payload, dict) else {}
+                registry_id = operation.get("queryId", "") if isinstance(operation, dict) else ""
+                if registry_id:
+                    candidates.append(registry_id)
+                if isinstance(operation, dict):
+                    registry_features = operation.get("features")
+                    if isinstance(registry_features, dict) and registry_features:
+                        _SEARCH_FEATURES_CACHE = registry_features
+                    registry_method = str(operation.get("@method", "") or "").upper()
+                    if registry_method in ("GET", "POST"):
+                        _SEARCH_METHOD_CACHE = registry_method
+        except Exception as err:
+            print("SearchTimeline queryId registry 解析失败，使用本地 fallback:", str(err))
+
+    candidates.append(getattr(CONFIG, "query_id_search", "") or "")
+    candidates.extend(getattr(CONFIG, "query_id_search_fallbacks", []) or [])
+    _SEARCH_QUERY_IDS_CACHE = _dedupe(candidates)
+    return list(_SEARCH_QUERY_IDS_CACHE)
 
 
 def _build_bookmarks_url(query_id: str, cursor=None) -> str:
@@ -332,6 +372,316 @@ def _append_quoted_tweet(body: str, tweet_result: dict) -> str:
     q_name = q_core.get("screen_name") or q_legacy_user.get("screen_name") or "unknown"
     quoted_md = "\n".join(("> " + line) if line else ">" for line in q_body.splitlines())
     return (body.rstrip() + "\n\n---\n\n> 引用 @" + str(q_name) + "\n>\n" + quoted_md).strip()
+
+
+def normalize_tweet_result(
+    tweet_result: dict,
+    category_hint: str = "",
+    sub_category_hint: str = "",
+) -> dict:
+    """Normalize one X GraphQL tweet result into Xcollect's canonical shape."""
+    t_res = _unwrap_tweet_result(tweet_result)
+    rest_id = str(t_res.get("rest_id", "") or "")
+    if not rest_id:
+        return {}
+
+    legacy = t_res.get("legacy", {}) or {}
+    user_res = _unwrap_user_result(
+        ((t_res.get("core", {}) or {}).get("user_results", {}) or {}).get("result", {}) or {}
+    )
+    user_core = user_res.get("core", {}) or {}
+    avatar_url = extract_avatar(user_res)
+    name = user_core.get("name", "")
+    s_name = user_core.get("screen_name", "")
+
+    title_hint, text, article_images = _extract_canonical_content(t_res, legacy)
+    text = _append_quoted_tweet(text, t_res)
+    images, videos = _extract_media(legacy)
+    for image_url in article_images:
+        if image_url not in images:
+            images.append(image_url)
+
+    snippet = text.replace("\n", " ").strip()[:140]
+    first_line = title_hint or (text.splitlines()[0] if text else "推文")
+    title = first_line[:72] + ("..." if len(first_line) > 72 else "")
+
+    if category_hint:
+        cat = category_hint
+        subcat = sub_category_hint or "精选研读"
+    else:
+        cat, subcat = rule_classify_tweet(text, title)
+
+    return {
+        "id": rest_id,
+        "author": name or s_name,
+        "username": s_name,
+        "avatar": avatar_url,
+        "title": title,
+        "snippet": snippet,
+        "likes": int(legacy.get("favorite_count", 0) or 0),
+        "retweets": int(legacy.get("retweet_count", 0) or 0),
+        "views": int((t_res.get("views", {}) or {}).get("count", 0) or 0),
+        "category": cat,
+        "sub_category": subcat,
+        "body_raw": text,
+        "url": f"https://x.com/{s_name}/status/{rest_id}" if s_name else f"https://x.com/i/status/{rest_id}",
+        "created_at": legacy.get("created_at", ""),
+        "lang": legacy.get("lang", ""),
+        "possibly_sensitive": bool(legacy.get("possibly_sensitive", False)),
+        "has_media": bool(images or videos),
+        "media_type": "video" if videos else ("image" if images else ""),
+        "images": images,
+        "videos": videos,
+        "classify_status": "projected",
+    }
+
+
+SEARCH_FEATURES = {
+    key: value
+    for key, value in BOOKMARK_FEATURES.items()
+    if key != "graphql_timeline_v2_bookmark_timeline"
+}
+SEARCH_FIELD_TOGGLES = {
+    "withArticleRichContentState": True,
+    "withArticlePlainText": True,
+}
+
+
+def _extract_search_timeline(raw_data: dict):
+    data = raw_data.get("data", {}) if isinstance(raw_data, dict) else {}
+    search_root = data.get("search_by_raw_query") or data.get("search") or {}
+    if isinstance(search_root, dict):
+        search_timeline = search_root.get("search_timeline") or search_root.get("timeline") or {}
+        if isinstance(search_timeline, dict):
+            timeline = search_timeline.get("timeline")
+            if isinstance(timeline, dict):
+                return timeline
+            if isinstance(search_timeline.get("instructions"), list):
+                return search_timeline
+    return None
+
+
+def _walk_dicts(node, depth: int = 0):
+    if depth > 10:
+        return
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk_dicts(value, depth + 1)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk_dicts(value, depth + 1)
+
+
+def _extract_entry_tweets(entry: dict) -> list[dict]:
+    results = []
+    seen = set()
+    for node in _walk_dicts(entry):
+        container = node.get("tweet_results") if isinstance(node, dict) else None
+        if not isinstance(container, dict):
+            continue
+        result = _unwrap_tweet_result(container.get("result", {}) or {})
+        rest_id = str(result.get("rest_id", "") or "")
+        if rest_id and rest_id not in seen:
+            seen.add(rest_id)
+            results.append(result)
+    return results
+
+
+def _extract_bottom_cursor(entry: dict) -> str:
+    for node in _walk_dicts(entry):
+        if not isinstance(node, dict):
+            continue
+        if node.get("cursorType") == "Bottom" and node.get("value"):
+            return str(node.get("value"))
+        entry_id = str(node.get("entryId", "") or "")
+        if "cursor-bottom" in entry_id:
+            content = node.get("content", {}) or {}
+            if isinstance(content, dict):
+                value = content.get("value") or (content.get("itemContent", {}) or {}).get("value")
+                if value:
+                    return str(value)
+    return ""
+
+
+async def fetch_search_timeline(
+    auth_token: str,
+    ct0: str,
+    raw_query: str,
+    count: int = 60,
+    max_pages: int = 1,
+    category_hint: str = "",
+    sub_category_hint: str = "",
+):
+    """Fetch X SearchTimeline (Latest) using the authenticated web GraphQL surface.
+
+    X rotates query IDs and has changed operation transport across builds.
+    The adapter therefore resolves query IDs dynamically and tolerates both GET
+    and POST SearchTimeline variants.
+    """
+    if js_fetch is None:
+        raise RuntimeError("当前 Worker 运行环境不支持 js_fetch")
+
+    query_ids = await resolve_search_query_ids()
+    if not query_ids:
+        raise RuntimeError("没有可用的 SearchTimeline GraphQL queryId")
+
+    cursor = ""
+    selected_query_id = None
+    failures = []
+    items = []
+    seen = set()
+    pages_fetched = 0
+
+    for _page in range(max(1, int(max_pages))):
+        timeline = None
+        candidate_ids = [selected_query_id] if selected_query_id else query_ids
+
+        for query_id in candidate_ids:
+            if not query_id:
+                continue
+
+            variables = {
+                "rawQuery": str(raw_query),
+                "count": max(10, min(100, int(count))),
+                "querySource": "typed_query",
+                "product": "Latest",
+            }
+            if cursor:
+                variables["cursor"] = cursor
+
+            effective_features = _SEARCH_FEATURES_CACHE or SEARCH_FEATURES
+            payload = {
+                "variables": variables,
+                "features": effective_features,
+                "fieldToggles": SEARCH_FIELD_TOGGLES,
+            }
+            endpoint = f"https://x.com/i/api/graphql/{query_id}/SearchTimeline"
+            referer = (
+                "https://x.com/search?q="
+                + urllib.parse.quote(str(raw_query))
+                + "&f=live"
+            )
+
+            preferred_method = _SEARCH_METHOD_CACHE if _SEARCH_METHOD_CACHE in ("GET", "POST") else "GET"
+            transport_attempts = (
+                preferred_method,
+                "POST" if preferred_method == "GET" else "GET",
+            )
+            for transport in transport_attempts:
+                init = JsObject.new()
+                init.method = transport
+                init.headers = build_x_headers(
+                    auth_token,
+                    ct0,
+                    referer=referer,
+                )
+
+                request_url = endpoint
+                if transport == "GET":
+                    request_url += "?" + urllib.parse.urlencode({
+                        "variables": json.dumps(
+                            variables,
+                            separators=(",", ":"),
+                        ),
+                        "features": json.dumps(
+                            effective_features,
+                            separators=(",", ":"),
+                        ),
+                        "fieldToggles": json.dumps(
+                            SEARCH_FIELD_TOGGLES,
+                            separators=(",", ":"),
+                        ),
+                    })
+                else:
+                    init.body = json.dumps(
+                        payload,
+                        separators=(",", ":"),
+                    )
+
+                resp = await js_fetch(request_url, init)
+                status = int(getattr(resp, "status", 0) or 0)
+                raw_text = await resp.text()
+
+                if status in (401, 403):
+                    raise RuntimeError(
+                        f"X SearchTimeline 凭证失效或请求被拒绝 (HTTP {status})"
+                    )
+                if status not in (200, 201):
+                    failures.append(
+                        f"{query_id}/{transport}: HTTP {status} {raw_text[:100]}"
+                    )
+                    continue
+                try:
+                    raw_data = json.loads(raw_text)
+                except Exception:
+                    failures.append(
+                        f"{query_id}/{transport}: 非 JSON 响应"
+                    )
+                    continue
+                if raw_data.get("errors"):
+                    failures.append(
+                        f"{query_id}/{transport}: "
+                        f"{raw_data['errors'][0].get('message', 'GraphQL error')}"
+                    )
+                    continue
+
+                timeline = _extract_search_timeline(raw_data)
+                if timeline is None:
+                    failures.append(
+                        f"{query_id}/{transport}: 响应缺少 search_timeline"
+                    )
+                    continue
+
+                selected_query_id = query_id
+                break
+
+            if timeline is not None:
+                break
+
+        if timeline is None:
+            detail = " | ".join(failures[-4:]) or "无可用响应"
+            raise RuntimeError(
+                "X SearchTimeline GraphQL 协议不可用；queryId/请求特征可能已轮换。最后诊断: "
+                + detail
+            )
+
+        pages_fetched += 1
+        next_cursor = ""
+        page_count = 0
+        for instruction in timeline.get("instructions", []) or []:
+            entries = instruction.get("entries", []) or []
+            if not entries and isinstance(instruction.get("entry"), dict):
+                entries = [instruction.get("entry")]
+            for entry in entries:
+                cursor_value = _extract_bottom_cursor(entry)
+                if cursor_value:
+                    next_cursor = cursor_value
+                for result in _extract_entry_tweets(entry):
+                    item = normalize_tweet_result(
+                        result,
+                        category_hint=category_hint,
+                        sub_category_hint=sub_category_hint,
+                    )
+                    tweet_id = str(item.get("id", "") or "")
+                    if not tweet_id or tweet_id in seen:
+                        continue
+                    seen.add(tweet_id)
+                    page_count += 1
+                    items.append(item)
+
+        if not next_cursor or next_cursor == cursor or page_count == 0:
+            break
+        cursor = next_cursor
+
+    return items, {
+        "query": raw_query,
+        "query_id": selected_query_id,
+        "query_id_candidates": query_ids,
+        "pages_fetched": pages_fetched,
+        "pulled_count": len(items),
+        "query_failures": failures[-4:],
+    }
 
 
 async def call_x_bookmark_api(tweet_id: str, action: str, auth_token: str, ct0: str) -> tuple[bool, str]:

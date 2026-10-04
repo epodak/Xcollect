@@ -17,6 +17,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_TOML_PATH = BASE_DIR / "config.toml"
 PROMPT_CLASSIFY_PATH = BASE_DIR / "prompts" / "classify_system.txt"
+DISCOVERY_QUERIES_PATH = BASE_DIR / "prompts" / "discovery_queries.json"
 TARGET_OUTPUT_PATH = BASE_DIR / "src" / "_config_data.py"
 
 
@@ -33,6 +34,11 @@ def generate_content() -> str:
         with open(PROMPT_CLASSIFY_PATH, "r", encoding="utf-8") as f:
             prompt_classify_str = f.read()
 
+    discovery_queries_str = "[]"
+    if DISCOVERY_QUERIES_PATH.exists():
+        with open(DISCOVERY_QUERIES_PATH, "r", encoding="utf-8") as f:
+            discovery_queries_str = f.read()
+
     generated_code = f'''# -*- coding: utf-8 -*-
 """
 ==============================================================================
@@ -48,6 +54,8 @@ def generate_content() -> str:
 CONFIG_TOML_CONTENT = {json.dumps(config_toml_str, ensure_ascii=False)}
 
 PROMPT_CLASSIFY_CONTENT = {json.dumps(prompt_classify_str, ensure_ascii=False)}
+
+DISCOVERY_QUERIES_CONTENT = {json.dumps(discovery_queries_str, ensure_ascii=False)}
 '''
     return generated_code
 

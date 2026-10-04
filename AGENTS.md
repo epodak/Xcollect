@@ -60,6 +60,8 @@
    - The frontend may project `related_hot_score`, but recommendation intelligence belongs in backend ranking/enrichment.
    - `feedback_events` is append-only training evidence. Aggregated preferences may be rebuilt from events; raw events are not mutated into hidden state.
    - Discovery jobs must be resumable/idempotent and should apply cheap spam/promo/NSFW gates before expensive AI inference.
+   - Search/Discovery source failure must never corrupt or delete bookmark-plane data; the two Cron jobs may report a composite failure but execute independently.
+   - A discovery candidate may enter `tweets` only through an explicit bookmark/save action followed by bookmark synchronization.
    - Daily selection must optimize diversity, not plain Top-K popularity.
    - See `docs/engineering/DISCOVERY_ENGINE.md`.
 
