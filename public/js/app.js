@@ -8,12 +8,12 @@ var tweets = [];
 var currentFilteredList = [];
 var renderedCount = 0;
 const BATCH_SIZE = 18; // 首屏与每次触底流式渲染 18 张卡片 (6 行)，轻量秒开无长任务
-const CACHE_KEY = "twitter_curated_tweets_cache_v4";
+const CACHE_KEY = "twitter_curated_tweets_cache_v5";
 
 var searchQuery = "";
 var activeCategory = "ALL";
 var activeSubCategory = "ALL";
-var sortMode = "bookmark_desc";
+var sortMode = "related_hot_desc";
 var filterBookmarked = false;
 var filterHasMedia = false;
 var filterHighLikes = false;
@@ -164,6 +164,7 @@ async function initApp() {
   setupEventListeners();
   const authStatusPromise = checkAuthStatus();
   const syncStatusPromise = refreshSyncStatusNotice();
+  api.flushFeedbackQueue().catch(() => {});
 
   // 4. 后台发起真实网络请求（非阻塞），实现推特级 Stale-While-Revalidate
   try {
@@ -429,6 +430,7 @@ function setupEventListeners() {
       function updateSortMode(newSort, scrollIntoCenter = false) {
         if (!newSort) return;
         sortMode = newSort;
+        window.sortMode = sortMode;
         sortPills.forEach(pill => {
           const isMatch = pill.dataset.sort === newSort;
           pill.classList.toggle("active", isMatch);
@@ -717,6 +719,12 @@ function applyFiltersAndRender(resetScroll = true) {
 
   // 排序
   currentFilteredList.sort((a, b) => {
+    if (sortMode === "related_hot_desc") {
+      const scoreDiff = Number(b.related_hot_score || 0) - Number(a.related_hot_score || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      // 同分时优先更近收藏，保持排序稳定且符合用户已有时间感。
+      return (a.bookmark_position ?? Number.MAX_SAFE_INTEGER) - (b.bookmark_position ?? Number.MAX_SAFE_INTEGER);
+    }
     // bookmark_position 来自 X Bookmarks timeline；0 表示最近收藏。
     if (sortMode === "bookmark_desc") return (a.bookmark_position ?? Number.MAX_SAFE_INTEGER) - (b.bookmark_position ?? Number.MAX_SAFE_INTEGER);
     if (sortMode === "likes_desc") return (b.likes || 0) - (a.likes || 0);
@@ -841,6 +849,9 @@ window.toggleXBookmark = async function(tweetId) {
             showToast(`已成功重新添加至 𝕏 云端书签 #${tweetId}`);
           }
           saveUnbookmarked();
+          recordTweetFeedback(tweetId, action === "delete" ? "unbookmark" : "bookmark", {
+            surface: currentOpenTweet && currentOpenTweet.id === tweetId ? "reader" : "feed"
+          });
           applyFiltersAndRender();
 
           if (currentOpenTweet && currentOpenTweet.id === tweetId) {
@@ -870,6 +881,9 @@ window.openDrawer = openDrawer;
 window.closeDrawer = closeDrawer;
 window.applyFiltersAndRender = applyFiltersAndRender;
 window.setupInfiniteScroll = setupInfiniteScroll;
+window.sortMode = sortMode;
+window.activeCategory = activeCategory;
+window.activeSubCategory = activeSubCategory;
 
 // 页面 DOM 加载完毕后自动启动
 document.addEventListener("DOMContentLoaded", initApp);
