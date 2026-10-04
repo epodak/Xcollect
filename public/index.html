@@ -401,9 +401,13 @@
         <div style="font-family: var(--font-mono); font-size: 0.75rem; color: rgb(var(--c-fg-subtle));" id="modalStats">
           ❤️ 0 赞 · 🔁 0 转 · 👀 0 阅
         </div>
-        <div style="display: flex; gap: 0.6rem;">
+        <div class="modal-actions">
           <button type="button" class="btn-action btn-copy" id="modalCopyBtn" onclick="copyTweetMarkdown(window.currentOpenTweet ? window.currentOpenTweet.id : '', this)" title="复制完整推文为 Markdown 到剪贴板">
-            <span>⧉ 复制 Markdown</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+              <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+            </svg>
+            <span>复制 Markdown</span>
           </button>
           <button class="btn-action btn-bookmark" id="modalToggleBookmark">
             <span>⭐ 同步 X 书签状态</span>

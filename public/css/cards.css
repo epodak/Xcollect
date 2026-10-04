@@ -364,6 +364,17 @@
       user-select: none;
     }
 
+    .btn-action .btn-icon {
+      width: 0.9rem;
+      height: 0.9rem;
+      flex: 0 0 auto;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .btn-action:hover {
       background: rgb(var(--c-surface-hover));
       color: rgb(var(--c-fg));
@@ -404,18 +415,32 @@
       cursor: not-allowed;
     }
 
+    /* Copy is a first-class action, but visually subordinate to destructive/stateful controls.
+       Use the product brand token instead of one-off gray so it stays coherent in both themes. */
     .btn-action.btn-copy {
-      color: rgb(var(--c-fg-muted));
-      background: rgb(var(--c-sunken));
-      border-color: rgb(var(--c-line));
+      color: rgb(var(--c-brand-bright));
+      background: rgb(var(--c-brand) / 0.08);
+      border-color: rgb(var(--c-brand) / 0.34);
+      box-shadow: inset 0 0 0 1px rgb(var(--c-brand) / 0.035);
     }
+
     .btn-action.btn-copy:hover {
-      background: rgb(var(--c-surface-hover));
-      border-color: rgb(var(--c-line-strong));
-      color: rgb(var(--c-fg));
+      color: rgb(var(--c-brand-bright));
+      background: rgb(var(--c-brand) / 0.15);
+      border-color: rgb(var(--c-brand) / 0.62);
+      box-shadow: 0 0 14px rgb(var(--c-brand) / 0.12);
     }
+
     .btn-action.btn-copy:active {
-      transform: scale(0.96);
+      background: rgb(var(--c-brand) / 0.2);
+      box-shadow: none;
+      transform: scale(0.98);
+    }
+
+    .btn-action.btn-copy:disabled {
+      cursor: default;
+      opacity: 0.78;
+      transform: none;
     }
 
     .btn-action.btn-twitter {
