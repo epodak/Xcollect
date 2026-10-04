@@ -16,6 +16,7 @@ from storage import (
     get_topology_status,
     renormalize_topology,
     batch_classify_pending,
+    record_feedback_event,
 )
 
 try:
@@ -94,6 +95,28 @@ async def on_fetch(request, env):
                 "message": msg,
                 "action": action,
                 "tweet_id": tweet_id,
+            })
+
+        if path == "/api/feedback" and method == "POST":
+            body_text = await request.text()
+            try:
+                data = json.loads(body_text)
+            except Exception:
+                return json_resp({"success": False, "error": "Invalid JSON"}, 400)
+
+            ok, msg, event = await record_feedback_event(
+                env,
+                event_id=data.get("event_id", ""),
+                tweet_id=data.get("tweet_id", ""),
+                action=data.get("action", ""),
+                context=data.get("context", {}),
+            )
+            if not ok:
+                return json_resp({"success": False, "error": msg}, 400)
+            return json_resp({
+                "success": True,
+                "message": msg,
+                "event": event,
             })
 
         # 手动同步只是一个触发器。真正同步逻辑位于 sync_service，

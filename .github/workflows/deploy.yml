@@ -34,8 +34,8 @@ jobs:
       - name: 安装 Node 依赖
         run: pnpm install --frozen-lockfile
 
-      - name: 门禁自检（Python 卫生与环境冒烟）
-        run: python local_server.py --check
+      - name: 门禁自检（工程卫生 + Related Hot）
+        run: pnpm run check
 
       - name: 注入生产 Wrangler 配置
         env:

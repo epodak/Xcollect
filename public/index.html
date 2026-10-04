@@ -132,7 +132,11 @@
         <div class="sort-pills-wrap">
           <span class="sort-label">排序:</span>
           <div class="sort-pills" id="sortPills" role="radiogroup" aria-label="推文排序方式">
-            <button class="sort-pill active" data-sort="bookmark_desc" role="radio" aria-checked="true" title="按你在 X 中的收藏顺序显示，最近收藏优先">
+            <button class="sort-pill active" data-sort="related_hot_desc" role="radio" aria-checked="true" title="综合相关性、内容质量、新颖度、互动速度与新鲜度排序">
+              <span class="pill-icon">🔥</span>
+              <span class="pill-text">相关热点</span>
+            </button>
+            <button class="sort-pill" data-sort="bookmark_desc" role="radio" aria-checked="false" title="按你在 X 中的收藏顺序显示，最近收藏优先">
               <span class="pill-icon">⭐</span>
               <span class="pill-text">最近收藏</span>
             </button>
@@ -159,6 +163,7 @@
           </div>
           <!-- 兼容隐藏 select 元素 -->
           <select id="sortSelect" class="sort-select" style="display:none;" aria-hidden="true">
+            <option value="related_hot_desc" selected>相关热点</option>
             <option value="bookmark_desc">最近收藏</option>
             <option value="likes_desc">最多点赞</option>
             <option value="views_desc">最多浏览</option>

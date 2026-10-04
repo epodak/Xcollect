@@ -78,6 +78,76 @@ const api = {
     };
   },
 
+  // 记录训练信号。失败时进入浏览器小型待重试队列，不阻塞主交互。
+  async recordFeedback(tweetId, action, context = {}) {
+    const eventId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
+      ? globalThis.crypto.randomUUID()
+      : `fb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const payload = {
+      event_id: eventId,
+      tweet_id: String(tweetId || ""),
+      action: String(action || ""),
+      context: context || {}
+    };
+
+    const send = async (body) => {
+      const resp = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        keepalive: true
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    };
+
+    try {
+      return await send(payload);
+    } catch (err) {
+      try {
+        const key = "xcollect_feedback_queue_v1";
+        const queued = JSON.parse(localStorage.getItem(key) || "[]");
+        queued.push(payload);
+        localStorage.setItem(key, JSON.stringify(queued.slice(-200)));
+      } catch (e) {}
+      throw err;
+    }
+  },
+
+  async flushFeedbackQueue() {
+    const key = "xcollect_feedback_queue_v1";
+    let queued = [];
+    try {
+      queued = JSON.parse(localStorage.getItem(key) || "[]");
+    } catch (e) {
+      queued = [];
+    }
+    if (!Array.isArray(queued) || queued.length === 0) return { flushed: 0 };
+
+    const batch = queued.slice(0, 25);
+    const remaining = queued.slice(25);
+    let flushed = 0;
+    for (const payload of batch) {
+      try {
+        const resp = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          keepalive: true
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        flushed += 1;
+      } catch (err) {
+        remaining.push(payload);
+      }
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify(remaining));
+    } catch (e) {}
+    return { flushed, remaining: remaining.length };
+  },
+
   // 触发边缘 AI 深度分类
   async classifyBookmarks() {
     const resp = await fetch("/api/bookmarks/classify", { method: "POST" });
@@ -86,3 +156,23 @@ const api = {
 };
 
 window.api = api;
+
+
+window.recordTweetFeedback = function(tweetId, action, context = {}) {
+  if (!tweetId || !action) return;
+  const item = Array.isArray(window.tweets)
+    ? window.tweets.find(tweet => String(tweet.id) === String(tweetId))
+    : null;
+  const mergedContext = Object.assign({
+    surface: context.surface || "feed",
+    sort_mode: window.sortMode || "related_hot_desc",
+    category: item ? (item.category || "") : "",
+    sub_category: item ? (item.sub_category || "") : "",
+    username: item ? (item.username || "") : "",
+    author: item ? (item.author || "") : ""
+  }, context || {});
+
+  api.recordFeedback(tweetId, action, mergedContext).catch(() => {
+    // Preference telemetry must never break reading/copy/bookmark interactions.
+  });
+};

@@ -151,6 +151,30 @@ class AppConfig:
         self.custom_ai_model = str(ai_cfg.get("custom_model", "deepseek-chat"))
         self.workers_ai_models = list(ai_cfg.get("workers_ai_models", []))
 
+        # Related-hot 排名与训练 reward（严格来自 config.toml 单一真源）
+        ranking_cfg = parsed.get("ranking", {})
+        self.related_hot_version = str(ranking_cfg.get("related_hot_version", "rh_v1"))
+        self.rank_relevance_weight = float(ranking_cfg.get("relevance_weight", 0.30))
+        self.rank_quality_weight = float(ranking_cfg.get("quality_weight", 0.20))
+        self.rank_novelty_weight = float(ranking_cfg.get("novelty_weight", 0.15))
+        self.rank_velocity_weight = float(ranking_cfg.get("velocity_weight", 0.15))
+        self.rank_source_weight = float(ranking_cfg.get("source_weight", 0.10))
+        self.rank_freshness_weight = float(ranking_cfg.get("freshness_weight", 0.10))
+        self.rank_freshness_half_life_hours = float(ranking_cfg.get("freshness_half_life_hours", 48.0))
+        self.rank_velocity_age_exponent = float(ranking_cfg.get("velocity_age_exponent", 0.68))
+        self.rank_velocity_scale = float(ranking_cfg.get("velocity_scale", 135.0))
+
+        feedback_cfg = parsed.get("feedback", {})
+        self.feedback_weights = {
+            "open_detail": float(feedback_cfg.get("open_detail_weight", 0.15)),
+            "copy": float(feedback_cfg.get("copy_weight", 0.80)),
+            "open_original": float(feedback_cfg.get("open_original_weight", 0.30)),
+            "bookmark": float(feedback_cfg.get("bookmark_weight", 1.00)),
+            "unbookmark": float(feedback_cfg.get("unbookmark_weight", -1.00)),
+            "not_interested": float(feedback_cfg.get("not_interested_weight", -1.20)),
+            "hide_author": float(feedback_cfg.get("hide_author_weight", -2.00)),
+        }
+
         # 拓扑重整化 (严格来自 config.toml 单一真源)
         topology_cfg = parsed.get("topology", {})
         self.renormalize_threshold = int(topology_cfg.get("renormalize_threshold", 30))

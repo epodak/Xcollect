@@ -62,6 +62,29 @@ workers_ai_models = [
   "@cf/meta/llama-3.2-1b-instruct"
 ]
 
+[ranking]
+# related-hot 是推荐排序，不是简单互动量排序；所有正向权重之和应为 1.0。
+related_hot_version = "rh_v1"
+relevance_weight = 0.30
+quality_weight = 0.20
+novelty_weight = 0.15
+velocity_weight = 0.15
+source_weight = 0.10
+freshness_weight = 0.10
+freshness_half_life_hours = 48.0
+velocity_age_exponent = 0.68
+velocity_scale = 135.0
+
+[feedback]
+# 用户动作作为训练信号的默认 reward。后续学习器只聚合事件，不回写原始事件。
+open_detail_weight = 0.15
+copy_weight = 0.80
+open_original_weight = 0.30
+bookmark_weight = 1.00
+unbookmark_weight = -1.00
+not_interested_weight = -1.20
+hide_author_weight = -2.00
+
 [topology]
 # 知识拓扑重整化阈值：未固化条目达到此数量触发重整化分析
 renormalize_threshold = 30

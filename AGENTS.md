@@ -53,3 +53,13 @@
    - Full reconciliation may refresh source-owned content for existing IDs so parser upgrades can repair historical records without overwriting Xcollect semantic enrichment.
    - Do not claim full thread reconstruction until the conversation graph has actually been fetched and normalized.
    - See `docs/engineering/CONTENT_NORMALIZATION.md`.
+
+9. **Discovery Plane separation invariant.**
+   - Bookmarks are durable user-owned knowledge assets; discovery candidates are ephemeral external observations.
+   - Never silently insert a recommendation into the bookmark knowledge base.
+   - The frontend may project `related_hot_score`, but recommendation intelligence belongs in backend ranking/enrichment.
+   - `feedback_events` is append-only training evidence. Aggregated preferences may be rebuilt from events; raw events are not mutated into hidden state.
+   - Discovery jobs must be resumable/idempotent and should apply cheap spam/promo/NSFW gates before expensive AI inference.
+   - Daily selection must optimize diversity, not plain Top-K popularity.
+   - See `docs/engineering/DISCOVERY_ENGINE.md`.
+

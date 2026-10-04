@@ -22,9 +22,12 @@ import shutil
 import threading
 from urllib.parse import urlparse
 from pathlib import Path
+from datetime import datetime, timezone
 
 # 导入集中解耦配置中心
 from config_loader import CONFIG
+from src.ranking import enrich_related_hot_many
+from src.preferences import apply_preference_profile
 
 BASE_DIR = Path(__file__).resolve().parent
 SERVE_DIR = str(BASE_DIR / "public")
@@ -32,7 +35,9 @@ DATA_DIR = BASE_DIR / "data"
 DB_FILE = str(DATA_DIR / "xcollect.json")
 SEED_FILE = str(BASE_DIR / "scripts" / "seed_data.json")
 ENV_FILE = str(BASE_DIR / ".env")
+FEEDBACK_FILE = str(DATA_DIR / "feedback_events.jsonl")
 LOCAL_DB_LOCK = threading.RLock()
+
 
 PORT = CONFIG.port
 TWITTER_BEARER = CONFIG.twitter_bearer
@@ -163,6 +168,75 @@ def ensure_local_data_file():
             initial = []
 
     atomic_write_json(DB_FILE, initial, keep_backup=False)
+
+
+def load_local_feedback(limit=5000):
+    feedback_path = Path(FEEDBACK_FILE)
+    if not feedback_path.exists():
+        return []
+    events = []
+    with LOCAL_DB_LOCK:
+        try:
+            with open(feedback_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        event = json.loads(line)
+                        if isinstance(event, dict):
+                            events.append(event)
+                    except Exception:
+                        continue
+        except Exception:
+            return []
+    return events[-max(1, int(limit)):]
+
+
+def append_local_feedback(event_id, tweet_id, action, context=None):
+    event_id = str(event_id or "").strip()[:128]
+    tweet_id = str(tweet_id or "").strip()[:128]
+    action = str(action or "").strip()
+    if not event_id or not tweet_id:
+        return False, "event_id 和 tweet_id 不能为空", {}
+    if action not in CONFIG.feedback_weights:
+        return False, f"不支持的 feedback action: {action}", {}
+
+    if isinstance(context, dict):
+        context_value = context
+    else:
+        context_value = {"value": str(context or "")[:2000]}
+
+    payload = {
+        "event_id": event_id,
+        "tweet_id": tweet_id,
+        "action": action,
+        "weight": float(CONFIG.feedback_weights[action]),
+        "context": context_value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with LOCAL_DB_LOCK:
+        existing_ids = set()
+        feedback_path = Path(FEEDBACK_FILE)
+        if feedback_path.exists():
+            try:
+                with open(feedback_path, "r", encoding="utf-8") as existing_file:
+                    for line in existing_file:
+                        try:
+                            old = json.loads(line)
+                            if old.get("event_id"):
+                                existing_ids.add(str(old["event_id"]))
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        if event_id not in existing_ids:
+            with open(feedback_path, "a", encoding="utf-8") as out:
+                out.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                out.flush()
+                os.fsync(out.fileno())
+
+    return True, "feedback recorded", payload
 
 
 def load_local_tweets():
@@ -805,7 +879,11 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/tweets":
-            data = load_local_tweets()
+            data, preference_profile = apply_preference_profile(
+                load_local_tweets(),
+                load_local_feedback(),
+            )
+            data = enrich_related_hot_many(data)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -815,6 +893,7 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 "source": "Local JSON",
                 "storage_profile": "local",
                 "total": len(data),
+                "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
                 "data": data
             }, ensure_ascii=False).encode("utf-8"))
             return
@@ -870,6 +949,33 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
             return
         
+        if parsed.path == "/api/feedback":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                data = json.loads(body.decode("utf-8"))
+                ok, msg, event = append_local_feedback(
+                    data.get("event_id", ""),
+                    data.get("tweet_id", ""),
+                    data.get("action", ""),
+                    data.get("context", {}),
+                )
+                self.send_response(200 if ok else 400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": ok,
+                    "message": msg,
+                    "event": event,
+                }, ensure_ascii=False).encode("utf-8"))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False).encode("utf-8"))
+            return
+
         if parsed.path == "/api/auth/save":
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
