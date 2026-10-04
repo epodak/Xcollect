@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Xcollect · Local-first Exploration Collector，当前从 X / Twitter 书签开始",
   "license": "MIT",
+  "type": "module",
   "packageManager": "pnpm@10.17.1",
   "scripts": {
     "sync:config": "python scripts/sync_config.py",
@@ -10,6 +11,7 @@
     "dev": "wrangler dev",
     "predeploy": "python scripts/sync_config.py && python scripts/check_cloud_schedule.py",
     "deploy": "wrangler deploy",
+    "pub": "node scripts/deploy.js",
     "serve:local": "python local_server.py",
     "check": "python local_server.py --check",
     "d1:init:local": "wrangler d1 execute x-bookmarks --local --file=scripts/schema.sql",

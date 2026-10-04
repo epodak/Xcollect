@@ -1,0 +1,57 @@
+# 自动部署：push main → 门禁校验 (local_server.py --check & predeploy) → wrangler deploy 到 Cloudflare Workers
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.repository == 'epodak/Xcollect'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python 运行环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 设置 pnpm 包管理器
+        uses: pnpm/action-setup@v4
+
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装 Node 依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 门禁自检（Python 卫生与环境冒烟）
+        run: python local_server.py --check
+
+      - name: 预部署检查与配置对齐 (predeploy)
+        run: pnpm run predeploy
+
+      - name: 注入生产 Wrangler 配置
+        env:
+          WRANGLER_JSONC: ${{ secrets.WRANGLER_JSONC }}
+        run: |
+          if [ -n "$WRANGLER_JSONC" ]; then
+            echo "$WRANGLER_JSONC" > wrangler.jsonc
+          else
+            cp wrangler.example.jsonc wrangler.jsonc
+          fi
+
+      - name: 部署到 Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
