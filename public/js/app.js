@@ -853,7 +853,9 @@ window.toggleXBookmark = async function(tweetId) {
           recordTweetFeedback(tweetId, action === "delete" ? "unbookmark" : "bookmark", {
             surface: currentOpenTweet && currentOpenTweet.id === tweetId ? "reader" : "feed",
             category: feedbackItem ? (feedbackItem.category || "") : "",
-            sub_category: feedbackItem ? (feedbackItem.sub_category || "") : ""
+            sub_category: feedbackItem ? (feedbackItem.sub_category || "") : "",
+            username: feedbackItem ? (feedbackItem.username || "") : "",
+            author: feedbackItem ? (feedbackItem.author || "") : ""
           });
           applyFiltersAndRender();
 
