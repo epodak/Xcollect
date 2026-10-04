@@ -166,7 +166,9 @@ window.recordTweetFeedback = function(tweetId, action, context = {}) {
     surface: context.surface || "feed",
     sort_mode: window.sortMode || "related_hot_desc",
     category: item ? (item.category || "") : "",
-    sub_category: item ? (item.sub_category || "") : ""
+    sub_category: item ? (item.sub_category || "") : "",
+    username: item ? (item.username || "") : "",
+    author: item ? (item.author || "") : ""
   }, context || {});
 
   api.recordFeedback(tweetId, action, mergedContext).catch(() => {
