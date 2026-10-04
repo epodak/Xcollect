@@ -14,8 +14,10 @@ from datetime import datetime, timezone
 import math
 import re
 
+from config_loader import CONFIG
 
-RELATED_HOT_VERSION = "rh_v1"
+
+RELATED_HOT_VERSION = CONFIG.related_hot_version
 
 _PROMO_TERMS = (
     "sponsored", "ad:", "advertisement", "affiliate", "promo code", "discount code",
@@ -149,12 +151,12 @@ def compute_related_hot_features(item: dict, now=None) -> dict:
 
     # Velocity rewards current momentum rather than lifetime popularity.
     engagement = likes + (retweets * 2.2) + (views * 0.012)
-    velocity_raw = engagement / ((age_hours + 2.0) ** 0.68)
-    engagement_velocity = _bounded_positive(velocity_raw, 135.0)
+    velocity_raw = engagement / ((age_hours + 2.0) ** CONFIG.rank_velocity_age_exponent)
+    engagement_velocity = _bounded_positive(velocity_raw, CONFIG.rank_velocity_scale)
 
-    # 48 h half-life. Old evergreen items can still rank through quality and
-    # relevance, but they no longer dominate "hot" solely from historical likes.
-    freshness = 0.5 ** (age_hours / 48.0)
+    # Configurable half-life. Old evergreen items can still rank through quality
+    # and relevance, but they no longer dominate "hot" solely from historical likes.
+    freshness = 0.5 ** (age_hours / max(1.0, CONFIG.rank_freshness_half_life_hours))
 
     text = _text_for_item(item)
     text_len = len(text)
@@ -204,12 +206,12 @@ def compute_related_hot_score(item: dict, now=None) -> tuple[float, dict]:
     features = compute_related_hot_features(item, now=now)
 
     positive = (
-        0.30 * features["relevance"]
-        + 0.20 * features["quality"]
-        + 0.15 * features["novelty"]
-        + 0.15 * features["engagement_velocity"]
-        + 0.10 * features["source"]
-        + 0.10 * features["freshness"]
+        CONFIG.rank_relevance_weight * features["relevance"]
+        + CONFIG.rank_quality_weight * features["quality"]
+        + CONFIG.rank_novelty_weight * features["novelty"]
+        + CONFIG.rank_velocity_weight * features["engagement_velocity"]
+        + CONFIG.rank_source_weight * features["source"]
+        + CONFIG.rank_freshness_weight * features["freshness"]
     )
     score = _clamp01(positive - features["penalty"])
     return round(score, 6), features
