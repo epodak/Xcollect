@@ -305,7 +305,11 @@ function generateTweetCardHtml(item, idx = 0) {
 
         <div class="card-buttons">
           <button type="button" class="btn-action btn-copy" onclick="event.stopPropagation(); copyTweetMarkdown('${tweetId}', this)" title="复制完整推文为 Markdown 到剪贴板" aria-label="复制推文 Markdown">
-            <span>⧉ 复制</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="8" y="8" width="11" height="11" rx="2"></rect>
+              <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+            </svg>
+            <span>复制</span>
           </button>
           <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="toggleXBookmark('${tweetId}')" title="${isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏'}">
             <span>${isSavedOnX ? '★ 移出' : '☆ 收藏'}</span>
