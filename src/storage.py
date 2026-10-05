@@ -344,10 +344,16 @@ async def record_feedback_event(
 
     if not event_id or not tweet_id:
         return False, "event_id 和 tweet_id 不能为空", {}
-    if action not in CONFIG.feedback_weights:
-        return False, f"不支持的 feedback action: {action}", {}
 
-    weight = float(CONFIG.feedback_weights[action])
+    # reject_candidate is a semantic alias with a different learning scope:
+    # it reuses the configured negative magnitude but must not masquerade as
+    # topic-level not_interested evidence.
+    if action == "reject_candidate":
+        weight = float(CONFIG.feedback_weights.get("not_interested", -1.20))
+    elif action in CONFIG.feedback_weights:
+        weight = float(CONFIG.feedback_weights[action])
+    else:
+        return False, f"不支持的 feedback action: {action}", {}
     if isinstance(context, dict):
         context_text = json.dumps(context, ensure_ascii=False, separators=(",", ":"))[:2000]
     else:
