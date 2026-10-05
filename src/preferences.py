@@ -68,7 +68,7 @@ def build_preference_profile(items: list[dict], events: list[dict]) -> dict:
         # “误抓/不该进入发现流”属于 Discovery quality feedback，而不是兴趣反馈。
         # 它可以训练 query/source/gate，但绝不能把同一 category/sub-category/author
         # 当成用户“不感兴趣”。旧事件未带 scope 时保持既有 preference 语义。
-        if _key(context.get("feedback_scope")) == "discovery_quality":
+        if _action == "reject_candidate" or _key(context.get("feedback_scope")) == "discovery_quality":
             continue
 
         item = item_by_id.get(tweet_id) or {}
