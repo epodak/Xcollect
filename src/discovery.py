@@ -274,13 +274,16 @@ def _feedback_context(event: dict) -> dict:
 
 
 def build_discovery_quality_profile(events: list[dict]) -> dict:
-    """Build a bounded query-level false-positive penalty.
+    """Build a bounded query-level quality penalty from behavioral utility.
 
-    This field is deliberately orthogonal to topic preference. A user can say
-    “this candidate should never have been discovered” without saying
-    “I dislike databases / this author / this topic”.
+    Query quality and semantic preference are orthogonal latent fields:
+    - corner × contributes its configured negative utility here only;
+    - open/copy/original/bookmark can offset a noisy query when provenance exists;
+    - “不想看这类” is semantic dislike and must not punish the query itself.
     """
-    raw_by_query = {}
+    utility_by_query = {}
+    positive_actions = {"open_detail", "copy", "open_original", "bookmark"}
+
     for event in events or []:
         context = _feedback_context(event)
         query = str(context.get("discovery_query", "") or "").strip()
@@ -289,22 +292,24 @@ def build_discovery_quality_profile(events: list[dict]) -> dict:
 
         action = str(event.get("action", "") or "")
         scope = str(context.get("feedback_scope", "") or "")
-        # False-positive reject is explicitly scoped to discovery quality.
-        # Positive acceptance signals may use normal preference scope; their
-        # provenance still offsets a noisy query without changing topic taste.
-        if action == "reject_candidate" or (action == "not_interested" and scope == "discovery_quality"):
-            raw_by_query[query] = raw_by_query.get(query, 0.0) + 1.0
-        elif action == "bookmark":
-            raw_by_query[query] = raw_by_query.get(query, 0.0) - 0.50
-        elif action == "copy":
-            raw_by_query[query] = raw_by_query.get(query, 0.0) - 0.20
+        try:
+            weight = float(event.get("weight") or 0.0)
+        except Exception:
+            weight = 0.0
 
-    # A single false positive should only nudge a query; repeated rejects can
-    # cap the penalty at 0.08 rather than collapsing a useful topic stream.
+        if action == "reject_candidate" or (
+            action == "not_interested" and scope == "discovery_quality"
+        ):
+            utility_by_query[query] = utility_by_query.get(query, 0.0) + min(0.0, weight)
+        elif action in positive_actions:
+            utility_by_query[query] = utility_by_query.get(query, 0.0) + max(0.0, weight)
+
+    scale = max(0.001, float(CONFIG.discovery_quality_scale))
+    cap = max(0.0, float(CONFIG.discovery_quality_penalty_cap))
     return {
-        query: round(max(0.0, 0.08 * math.tanh(signal / 3.0)), 6)
-        for query, signal in raw_by_query.items()
-        if signal > 0
+        query: round(cap * math.tanh((-utility) / scale), 6)
+        for query, utility in utility_by_query.items()
+        if utility < 0
     }
 
 
