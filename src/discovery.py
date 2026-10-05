@@ -1027,21 +1027,23 @@ async def get_discovery_status(env) -> dict:
     }
     try:
         res = await env.DB.prepare(
-            "SELECT state, COUNT(*) AS total "
-            "FROM discovery_candidates WHERE discovery_date = ? "
-            "GROUP BY state"
-        ).bind(today).all()
+            "SELECT state, created_at, first_seen_at FROM discovery_candidates"
+        ).all()
+        now = datetime.now(timezone.utc)
         for row in res.results:
+            if not _within_retention(
+                _row_get(row, "created_at", ""),
+                _row_get(row, "first_seen_at", ""),
+                now=now,
+            ):
+                continue
             state = str(_row_get(row, "state", "") or "")
-            counts[state] = int(_row_get(row, "total", 0) or 0)
+            counts[state] = counts.get(state, 0) + 1
     except Exception:
         pass
 
     try:
-        feed_res = await env.DB.prepare(
-            "SELECT COUNT(*) AS total FROM daily_feed WHERE feed_date = ?"
-        ).bind(today).all()
-        feed_count = int(_row_get(feed_res.results[0], "total", 0) or 0) if feed_res.results else 0
+        feed_count = len(await get_daily_feed(env))
     except Exception:
         feed_count = 0
 
@@ -1060,12 +1062,6 @@ async def get_discovery_status(env) -> dict:
 
 
 async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
-    if not CONFIG.discovery_enabled:
-        return 200, {
-            "success": True,
-            "skipped": True,
-            "reason": "discovery_disabled",
-        }
     if not hasattr(env, "DB"):
         return 400, {
             "success": False,
@@ -1073,11 +1069,28 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         }
 
     await ensure_discovery_schema(env)
+
+    # Every scheduler tick enforces rolling freshness, even when a new
+    # SearchTimeline acquisition is not due yet.
+    purge_meta = await purge_expired_discovery(env)
+    current_feed_count, _ = await materialize_daily_feed(env)
+
+    if not CONFIG.discovery_enabled:
+        return 200, {
+            "success": True,
+            "skipped": True,
+            "reason": "discovery_disabled",
+            "retention": purge_meta,
+            "daily_feed_count": current_feed_count,
+        }
+
     if not await discovery_due(env, force=force):
         return 200, {
             "success": True,
             "skipped": True,
             "reason": "not_due",
+            "retention": purge_meta,
+            "daily_feed_count": current_feed_count,
         }
 
     auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
@@ -1168,6 +1181,7 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         "accepted": len(accepted),
         "judged": judged_persisted,
         "feed": feed_count,
+        "expired": int(purge_meta.get("expired_candidates", 0) or 0),
     }
     await _meta_set(env, "discovery:last_run_at", _now_iso())
     await _meta_set(
@@ -1188,6 +1202,7 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         "persisted_candidates": persisted,
         "judged_candidates": judged_persisted,
         "daily_feed_count": feed_count,
+        "retention": purge_meta,
         "judge": judge_meta,
         "queries": query_reports,
     }
