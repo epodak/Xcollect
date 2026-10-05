@@ -9,6 +9,7 @@ diversity-constrained daily feed.
 import json
 import math
 from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 
 from config_loader import CONFIG
 
@@ -51,6 +52,43 @@ def _today() -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_utc_datetime(value):
+    """Parse ISO or X legacy/RFC-like timestamps into aware UTC datetimes."""
+    if not value:
+        return None
+    raw = str(value).strip()
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        try:
+            dt = parsedate_to_datetime(raw)
+        except Exception:
+            return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _source_age_hours(created_at, now=None):
+    dt = _parse_utc_datetime(created_at)
+    if dt is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    return max(0.0, (now - dt).total_seconds() / 3600.0)
+
+
+def _within_retention(created_at, first_seen_at="", now=None) -> bool:
+    """Discovery freshness is a rolling UTC window, never a calendar-day bucket."""
+    now = now or datetime.now(timezone.utc)
+    dt = _parse_utc_datetime(created_at) or _parse_utc_datetime(first_seen_at)
+    if dt is None:
+        return False
+    age_hours = max(0.0, (now - dt).total_seconds() / 3600.0)
+    return age_hours < float(CONFIG.discovery_retention_hours)
 
 
 def _json_obj(value):
@@ -177,6 +215,15 @@ def cheap_gate_candidate(item: dict) -> tuple[bool, str, float]:
     text = str(item.get("body_raw") or item.get("snippet") or "").strip()
     if item.get("possibly_sensitive"):
         return False, "possibly_sensitive", 1.0
+
+    # “热点”是滚动 24h 新鲜流。无法证明发布时间，或源帖已经超过窗口，
+    # 都不能进入 AI Judge / feed，更不能靠 discovery_date 跨日滞留。
+    source_age = _source_age_hours(item.get("created_at"))
+    if source_age is None:
+        return False, "unknown_source_time", 0.0
+    if source_age >= float(CONFIG.discovery_retention_hours):
+        return False, "expired_source", 0.0
+
     # 查询端已经普遍带 -filter:replies，但 X SearchTimeline 偶尔仍会返回回复。
     # 回复可能技术上很相关，却往往依赖上文才能成立；这属于“发现质量”问题，
     # 不是用户对该技术主题不感兴趣，因此在 cheap gate 单独剔除。
