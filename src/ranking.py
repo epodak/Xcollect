@@ -11,6 +11,7 @@ subtracted from the weighted positive score.
 """
 
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import math
 import re
 
@@ -51,9 +52,12 @@ def _parse_datetime(value):
     try:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except Exception:
-        # X legacy timestamps may use RFC-like strings. Avoid adding a parser
-        # dependency here; unknown timestamps simply receive neutral freshness.
-        return None
+        try:
+            # X legacy timestamps are RFC-like, e.g.
+            # "Sat Oct 04 12:00:00 +0000 2026".
+            dt = parsedate_to_datetime(raw)
+        except Exception:
+            return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
