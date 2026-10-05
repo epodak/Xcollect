@@ -165,7 +165,7 @@ def main():
         },
     }
     preferred, profile = apply_preference_profile(
-        [_candidate("q1", category="02_技术架构与开发", sub_category="数据库与存储架构", username="good_author")],
+        [_candidate(101, id="q1", category="02_技术架构与开发", sub_category="数据库与存储架构", username="good_author")],
         [quality_event],
     )
     assert preferred[0]["preference_boost"] == 0
