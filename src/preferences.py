@@ -2,8 +2,8 @@
 """Preference aggregation for the Personal Discovery Engine.
 
 Human policy defines action meaning and ordering. Magnitude is calibrated from
-observed behavior (primarily bookmark conversion) rather than fixed +1/+10/+50
-ratios. Raw evidence stays immutable during its retention window; this module
+observed behavior (primarily bookmark conversion) rather than hand-written
+relative ratios. Raw evidence stays immutable during its retention window; this module
 only derives bounded preference fields.
 """
 
