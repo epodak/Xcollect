@@ -144,11 +144,18 @@ provenance, normalized semantic/ranking features and candidate state.
 Candidate states are expected to evolve through:
 
 ```text
-candidate → rejected
+candidate → rejected                 # AI gate or explicit card-corner × false-positive reject
 candidate → selected → shown
-selected → saved
-selected → hidden
+selected → saved_pending → saved     # explicit X save, then bookmark sync/read-back confirmation
+selected → hidden                    # “不想看这类” semantic preference action
 ```
+
+The two negative exits are intentionally not equivalent:
+
+- `rejected` means “this item should not have entered Discovery”. It trains source/query/gate quality and must not lower topic/sub-category/author preference.
+- `hidden` means “I do not want more content like this”. It remains a semantic preference signal.
+
+Likewise, `saved_pending` is not a bookmark. It only means X accepted the save request. The item becomes a durable bookmark after the bookmark plane synchronizes it into `tweets` and read-back confirms the ID.
 
 ### daily_feed
 
@@ -220,6 +227,8 @@ The live Discovery Plane now includes:
   product to one request shape;
 - candidate acquisition that remains independent from bookmark synchronization;
 - hard rejection for sensitive / extremely short / obvious promo-spam content;
+- reply provenance normalization plus a cheap-gate reply guard, so SearchTimeline leakage cannot bypass query intent such as `-filter:replies`;
+- a distinct false-positive rejection path whose feedback is kept out of topic preference and instead contributes a bounded query-quality penalty;
 - Workers AI micro-batch judging with deterministic fallback;
 - related-hot scoring after learned preference correction;
 - daily-feed materialization with author / sub-category / category caps;
