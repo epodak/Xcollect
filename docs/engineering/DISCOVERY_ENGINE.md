@@ -101,121 +101,168 @@ bookmarks. Discovery ingestion may later use a hard rejection threshold.
 
 ## Feedback as training data
 
-`feedback_events` is append-only.
+`feedback_events` records immutable raw interaction evidence during its retention
+window. It is not itself the learned model.
 
-Current actions already produce preference signals:
+### Human policy vs learned magnitude
 
-| action | behavioral utility | learning projection |
-| --- | ---: | --- |
-| open_detail | +1 | semantic preference + query acceptance |
-| copy | +5 | semantic preference + query acceptance |
-| open_original | +10 | semantic preference + query acceptance |
-| bookmark | +50 | strong semantic preference + query acceptance |
-| unbookmark | -50 | cancels prior bookmark evidence; not equivalent to “不想看这类” |
-| reject_candidate | -10 | Discovery-quality only |
-| not_interested | -50 | semantic preference only |
-| hide_author | -100 | explicit author-level semantic rejection |
-
-The values are configuration, not hard-coded product truth. They are **relative
-evidence units**, not direct ranking points. The learner first aggregates them,
-then applies bounded `tanh` transforms. This preserves the intended hierarchy
-(+1 << +10 << +50) without letting one bookmark permanently saturate the feed.
-
-The important invariant is:
+Product policy defines semantics and order:
 
 ```text
-feed
-  ↓
-human action
-  ↓
-append-only feedback event
-  ↓
-future aggregation / preference model
-  ↓
-next feed
+impression
+  < open_detail
+  < copy
+  < open_original
+  < bookmark
 ```
 
-Raw events are never rewritten into a single mutable "preference" field.
-Aggregated preference models must be reproducible from the retained event log.
-
-“Append-only” here means immutable during the retention window, not eternal
-storage. Discovery-only evidence is physically deleted when its unpromoted
-candidate expires at 24h source age. This deliberately makes short-lived
-Discovery learning forget stale attention. Durable Bookmark evidence remains
-available because the object has left the ephemeral Discovery Plane.
-
-The first online trainer is deliberately small and bounded:
-
-- repeated `(tweet, action)` pairs are deduplicated for learning;
-- raw behavioral utility is aggregated into category, sub-category and author fields;
-- category/sub-category/author fields use separate configurable `tanh` scales;
-- the combined correction is bounded to approximately `[-0.22, +0.22]`;
-- the correction modifies semantic relevance rather than replacing quality,
-  freshness or velocity;
-- query-quality uses a separate bounded field: false-positive × contributes -10,
-  while detail/original/bookmark evidence can offset a noisy query;
-- semantic “不想看这类” never punishes the discovery query itself.
-
-This means a few actions can steer the feed, but cannot immediately collapse it
-into an echo chamber.
-
-The current bounded transforms are:
+It also defines orthogonal negative meanings:
 
 ```text
-category_signal    = tanh(sum(utility) / 150)
-subcategory_signal = tanh(sum(utility) / 100)
-author_signal      = tanh(sum(utility) / 100)
-
-preference_boost
-  = 0.06 * category_signal
-  + 0.10 * subcategory_signal
-  + 0.06 * author_signal
-
-query_quality_penalty
-  = 0.10 * tanh(max(0, -sum(query_utility)) / 30)
+reject_candidate  -> Discovery quality only
+not_interested    -> semantic preference only
+hide_author       -> author-level semantic rejection
+unbookmark        -> withdraw bookmark evidence, not dislike
 ```
 
-Therefore a single title open is weak evidence, opening the original is roughly
-an order of magnitude stronger, and bookmarking is strong evidence without
-being a literal +50 ranking-point jump. A single false-positive × creates only
-a bounded query-quality penalty; an open-original (+10) on another result from
-the same query can offset one × (-10).
+The earlier +1/+10/+50-style numbers were useful only to express an intuition
+about ordering. They are no longer used as relative recommendation weights.
+The persisted `weight` column remains for backward compatibility and now
+contains sign-only legacy values.
 
-## Two-timescale learning
+### Valid exposure
 
-Discovery intentionally has a fast and a slow memory:
+An item is not negative merely because it was rendered. Discovery records an
+`impression` only when a card is at least 50% visible for at least 1.5 seconds.
+
+This prevents the learner from confusing:
 
 ```text
-Fast field
-= unpromoted Discovery interactions
-= detail/original/copy/reject/not-interested
-= expires with the source-post 24h window
-
-Slow field
-= objects explicitly promoted into Bookmarks
-= durable knowledge + durable bookmark evidence
-= not governed by Discovery TTL
+ranked below the fold / never seen
 ```
 
-This gives the system short-term adaptation without letting yesterday's
-unaccepted feed become a permanent hidden training corpus.
-
-Client feedback is best-effort and must never block reading, copying, opening X
-or bookmark actions. Failed events are queued locally and retried later.
-
-Feedback has two orthogonal learning projections:
+with:
 
 ```text
-reject_candidate + feedback_scope=discovery_quality
-    -> query/source/gate quality
-    -> excluded from category/sub-category/author preference
-
-not_interested + normal preference scope
-    -> category/sub-category/author preference
+seen and ignored
 ```
 
-This separation is intentional. “The system fetched the wrong object” is not the
-same statement as “the system found the right object but I dislike the topic.”
+The impression event also preserves rank position and normal Discovery
+provenance for later evaluation.
+
+### Self-calibrating positive actions
+
+Xcollect estimates positive action utility from the user's own bookmark
+conversion behavior:
+
+```text
+P(bookmark | impression)
+P(bookmark | open_detail)
+P(bookmark | copy)
+P(bookmark | open_original)
+```
+
+The implementation stores only decayed aggregate sufficient statistics:
+
+```text
+action -> exposures, bookmark_conversions, updated_at
+```
+
+No tweet IDs or tweet text are stored in this calibration table.
+
+Current calibration behavior:
+
+- aggregate statistics have a 30-day half-life;
+- sparse-data bootstrap comes only from ordinal rank (equal-spaced prior order),
+  not from hand-written action ratios;
+- observed conversion data progressively replaces the bootstrap prior;
+- a pooled-adjacent-violators / isotonic projection guarantees
+  `open_detail <= copy <= open_original <= bookmark` despite sampling noise;
+- `bookmark` is the normalized terminal positive anchor at 1.0.
+
+The current learned utilities are visible through `/api/discovery/status` for
+inspection and future offline evaluation.
+
+### One item, one semantic vote
+
+A normal action funnel must not be counted additively:
+
+```text
+detail -> original -> bookmark
+```
+
+does **not** become three independent positive votes.
+
+For each tweet, semantic preference uses the strongest surviving action.
+`unbookmark` withdraws the bookmark vote, allowing weaker earlier engagement
+to remain, but it does not become a semantic negative.
+
+Topic/sub-topic/author fields aggregate these normalized item-level votes and
+apply evidence-count confidence shrinkage before producing the bounded
+`preference_boost`.
+
+### Query quality is a different model
+
+Discovery-quality learning does not share semantic preference magnitude.
+
+For each `(query, tweet)`:
+
+- `reject_candidate` is one false-positive observation;
+- any positive engagement is one accepted observation;
+- impression-only is unknown;
+- `not_interested` does not judge query correctness.
+
+A Beta-Binomial posterior estimates query false-positive risk. The prior
+provides small-sample shrinkage and the final query penalty remains capped.
+One accepted result must monotonically reduce the penalty created by the same
+reject history.
+
+### Fast raw memory, slow aggregate calibration
+
+```text
+Raw Discovery events
+    -> 24h source-post TTL
+    -> physically deleted when the unpromoted candidate expires
+
+Aggregate action calibration
+    -> no raw identity/content
+    -> 30-day exponential half-life
+
+Durable Bookmark evidence
+    -> durable knowledge plane
+    -> exempt from Discovery TTL
+```
+
+This lets Xcollect learn from yesterday without retaining yesterday's
+unaccepted feed as a hidden permanent training corpus.
+
+### Exploration
+
+Pure exploitation creates a self-confirming loop: the model shows what it
+already believes, then treats interaction with those items as proof that the
+belief was correct.
+
+The selector therefore reserves a small exploration budget (currently 8%) among
+candidates that already passed freshness, spam, relevance and quality gates.
+Exploration never bypasses quality gates. The sample is deterministic per
+UTC day and tweet ID for reproducibility.
+
+### Evaluation direction
+
+The model should be judged by downstream behavior rather than whether a
+hand-written score "looks right". Useful measurements include:
+
+- valid-impression -> detail rate;
+- valid-impression -> original rate;
+- valid-impression -> bookmark rate;
+- false-positive reject rate;
+- semantic not-interested rate;
+- NDCG / concentration of high-value actions near the top of the feed;
+- calibration of predicted acceptance against observed acceptance;
+- diversity / coverage under the exploration floor.
+
+Raw events are evidence; learned sufficient statistics and bounded fields are
+model state. The two should not be conflated.
 
 ## Discovery storage objects
 
