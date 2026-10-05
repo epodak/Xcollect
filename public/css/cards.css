@@ -43,6 +43,42 @@
       min-height: auto;
     }
 
+    /* Discovery 右上角 × = “误抓/不该进入发现流”，与底部“不想看这类”严格分义。 */
+    .tweet-card.is-discovery .card-top {
+      padding-right: 1.75rem;
+    }
+
+    .card-reject-candidate {
+      position: absolute;
+      top: 0.58rem;
+      right: 0.58rem;
+      z-index: 5;
+      width: 1.65rem;
+      height: 1.65rem;
+      border: 1px solid transparent;
+      border-radius: 9999px;
+      background: transparent;
+      color: rgb(var(--c-fg-subtle));
+      font-size: 1rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .card-reject-candidate:hover {
+      color: rgb(var(--c-fg));
+      background: rgb(var(--c-sunken));
+      border-color: rgb(var(--c-line-strong));
+    }
+
+    .card-reject-candidate:active {
+      transform: scale(0.94);
+    }
+
     /* 核心防抖与零误触契约：鼠标悬浮时卡片物理位置绝对静止 (transform: none)，
        通过背景向下方自然投射深层环境阴影 (Drop Shadow) 呈现悬浮浮空质感，杜绝鼠标错位与按钮点击脱靶 */
     .tweet-card:hover {
