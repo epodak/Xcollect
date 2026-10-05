@@ -8,6 +8,7 @@ Use the layers below deliberately:
 | --- | --- | --- |
 | `AGENTS.md` | Non-negotiable project invariants | Rules future agents must not violate |
 | `docs/engineering/*.md` | Architecture, rationale, state models, failure semantics | Why the system is designed this way |
+| `docs/engineering/decisions/ADR-*.md` | Durable design decisions and superseded alternatives | What was decided, why, and what it replaced |
 | `.agents/skills/*/SKILL.md` | Repeatable agent execution playbooks | How to safely change a subsystem |
 | `scripts/check_*.py` | Executable contracts | Machine-checkable acceptance criteria |
 | Code | Implementation | The current mechanism, not the only source of rationale |
@@ -19,6 +20,7 @@ Use the layers below deliberately:
 - `SYNC_AND_D1.md` — storage and synchronization mechanics.
 - `CONTENT_NORMALIZATION.md` — canonical source-content normalization.
 - `DISCOVERY_ENGINE.md` — Discovery Plane, ranking, feedback semantics, candidate lifecycle and bookmark promotion.
+- `decisions/ADR-0001-SELF-CALIBRATING-BEHAVIOR-LEARNING.md` — why fixed action ratios were replaced by learned calibration, valid impressions, and exploration.
 
 ## Discovery maintenance
 
