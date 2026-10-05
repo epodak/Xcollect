@@ -154,7 +154,7 @@ def main():
     # False-positive × feedback must not become topic dislike.
     quality_event = {
         "tweet_id": "q1",
-        "action": "not_interested",
+        "action": "reject_candidate",
         "weight": -1.2,
         "context": {
             "feedback_scope": "discovery_quality",
