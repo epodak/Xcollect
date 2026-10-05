@@ -11,6 +11,7 @@ render = (ROOT / "public" / "js" / "render.js").read_text(encoding="utf-8")
 entry = (ROOT / "src" / "entry.py").read_text(encoding="utf-8")
 discovery = (ROOT / "src" / "discovery.py").read_text(encoding="utf-8")
 preferences = (ROOT / "src" / "preferences.py").read_text(encoding="utf-8")
+learning = (ROOT / "src" / "learning.py").read_text(encoding="utf-8")
 sync_service = (ROOT / "src" / "sync_service.py").read_text(encoding="utf-8")
 
 # Empty-state truth: filtering to zero is not the same as clearing the Discovery Inbox.
@@ -28,6 +29,17 @@ assert 'feedback_scope: "discovery_quality"' in app
 assert "card-reject-candidate" in render
 assert "不会降低你对该话题的兴趣" in render
 assert 'feedback_scope")) == "discovery_quality"' in preferences
+
+# Viewability and self-calibration contracts.
+assert "IMPRESSION_MIN_RATIO = 0.50" in app
+assert "IMPRESSION_MIN_MS = 1500" in app
+assert 'recordTweetFeedback(tweetId, "impression"' in app
+assert 'data-rank-position=' in render
+assert "learning_action_stats" in learning
+assert "estimate_action_utilities" in learning
+assert "update_action_calibration" in learning
+assert "strongest surviving semantic action" in preferences
+assert "+1/+10/+50" not in preferences
 
 # Candidate promotion is two-phase: X accepts -> pending -> bookmark sync -> durable saved.
 assert '"saved_pending"' in app
