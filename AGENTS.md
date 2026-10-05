@@ -62,6 +62,11 @@
    - Discovery jobs must be resumable/idempotent and should apply cheap spam/promo/NSFW gates before expensive AI inference.
    - Search/Discovery source failure must never corrupt or delete bookmark-plane data; the two Cron jobs may report a composite failure but execute independently.
    - A discovery candidate may enter `tweets` only through an explicit bookmark/save action followed by bookmark synchronization.
+   - Promotion is two-phase: explicit save -> `saved_pending` -> bookmark sync/read-back -> `saved`. UI must not count `saved_pending` as a durable bookmark.
+   - Discovery rejection has two orthogonal meanings:
+     - card-corner `×` = false positive / wrong candidate; remove it from Discovery without lowering topic/author preference, while feeding Discovery quality learning;
+     - “不想看这类” = semantic preference feedback; lower similar topic/author recommendations.
+   - Source-query intent is enforced again after ingestion: replies that leak through X SearchTimeline despite `-filter:replies` are rejected by the cheap gate.
    - Daily selection must optimize diversity, not plain Top-K popularity.
    - See `docs/engineering/DISCOVERY_ENGINE.md`.
 
