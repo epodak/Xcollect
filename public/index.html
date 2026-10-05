@@ -141,6 +141,13 @@
       <!-- 控制栏：排序平铺胶囊、视角切换与移动端抽屉唤起 -->
       <div class="control-bar">
         <div class="sort-pills-wrap">
+          <button class="btn-action mobile-filter-btn" id="openDrawerBtn" style="display: none;" title="更多筛选" aria-label="更多筛选">
+            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h16"></path>
+              <path d="M7 12h10"></path>
+              <path d="M10 19h4"></path>
+            </svg>
+          </button>
           <span class="sort-label">排序:</span>
           <div class="sort-pills" id="sortPills" role="radiogroup" aria-label="推文排序方式">
             <button class="sort-pill active" data-sort="related_hot_desc" role="radio" aria-checked="true" title="综合相关性、内容质量、新颖度、互动速度与新鲜度排序">
@@ -185,9 +192,6 @@
         </div>
 
         <div class="control-actions-wrap">
-          <button class="btn-action mobile-filter-btn" id="openDrawerBtn" style="display: none;" title="打开完整分类与高级过滤">
-            <span>⚡ 分类筛选</span>
-          </button>
           <div class="view-mode-btns">
             <button class="view-btn active" id="btnGridView" title="整齐等高卡片网格 (推荐)">⊞ 等高</button>
             <button class="view-btn" id="btnCompactView" title="紧凑自然瀑布流网格">▤ 紧凑</button>
