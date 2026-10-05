@@ -178,11 +178,11 @@ def main():
     ok, reason, _ = cheap_gate_candidate(reply)
     assert not ok and reason == "reply"
 
-    # False-positive × feedback must not become topic dislike.
+    # False-positive feedback must not become topic dislike.
     quality_event = {
         "tweet_id": "q1",
         "action": "reject_candidate",
-        "weight": -10.0,
+        "weight": -1.0,
         "context": {
             "feedback_scope": "discovery_quality",
             "discovery_query": "sqlite benchmark",
@@ -202,31 +202,29 @@ def main():
 
     quality_only = build_discovery_quality_profile([quality_event])
     assert quality_only["sqlite benchmark"] > 0
-
-    # Opening the original (+10) offsets one false-positive × (-10) at query-quality level.
-    quality_with_original = build_discovery_quality_profile([
+    quality_with_accept = build_discovery_quality_profile([
         quality_event,
         {
             "tweet_id": "q2",
             "action": "open_original",
-            "weight": 10.0,
+            "weight": 1.0,
             "context": {"discovery_query": "sqlite benchmark"},
         },
     ])
-    assert quality_with_original.get("sqlite benchmark", 0) == 0
+    assert 0 <= quality_with_accept.get("sqlite benchmark", 0) < quality_only["sqlite benchmark"]
 
-    quality_with_accept = build_discovery_quality_profile([
-        quality_event,
-        {
-            "tweet_id": "q3",
-            "action": "bookmark",
-            "weight": 50.0,
-            "context": {"discovery_query": "sqlite benchmark"},
-        },
-    ])
-    assert quality_with_accept.get("sqlite benchmark", 0) == 0
+    action_stats = {
+        "impression": {"exposures": 100, "conversions": 5},
+        "open_detail": {"exposures": 80, "conversions": 8},
+        "copy": {"exposures": 50, "conversions": 10},
+        "open_original": {"exposures": 30, "conversions": 12},
+    }
+    learned = estimate_action_utilities(action_stats)
+    assert 0 <= learned["open_detail"] <= learned["copy"] <= learned["open_original"] < learned["bookmark"] == 1.0
 
-    # Semantic preference uses the same relative evidence scale but remains bounded.
+    bootstrap = estimate_action_utilities({})
+    assert bootstrap["open_detail"] < bootstrap["copy"] < bootstrap["open_original"] < bootstrap["bookmark"]
+
     semantic_items = [
         _candidate(201, id="detail", username="same", category="cat", sub_category="sub"),
         _candidate(202, id="original", username="same2", category="cat2", sub_category="sub2"),
@@ -235,11 +233,18 @@ def main():
     ]
     semantic_events = [
         {"tweet_id": "detail", "action": "open_detail", "weight": 1.0},
-        {"tweet_id": "original", "action": "open_original", "weight": 10.0},
-        {"tweet_id": "saved", "action": "bookmark", "weight": 50.0},
-        {"tweet_id": "dislike", "action": "not_interested", "weight": -50.0},
+        {"tweet_id": "original", "action": "open_detail", "weight": 1.0},
+        {"tweet_id": "original", "action": "open_original", "weight": 1.0},
+        {"tweet_id": "saved", "action": "open_detail", "weight": 1.0},
+        {"tweet_id": "saved", "action": "open_original", "weight": 1.0},
+        {"tweet_id": "saved", "action": "bookmark", "weight": 1.0},
+        {"tweet_id": "dislike", "action": "not_interested", "weight": -1.0},
     ]
-    _, semantic_profile = apply_preference_profile(semantic_items, semantic_events)
+    _, semantic_profile = apply_preference_profile(
+        semantic_items,
+        semantic_events,
+        action_stats=action_stats,
+    )
     assert 0 < semantic_profile["category"]["cat"] < semantic_profile["category"]["cat2"] < semantic_profile["category"]["cat3"]
     assert semantic_profile["category"]["cat4"] < 0
 
