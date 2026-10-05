@@ -313,6 +313,98 @@ html, body {
       box-shadow: var(--shadow-sm);
     }
 
+    .control-primary-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+
+    .feed-scope-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    /* 数据流视角切换胶囊 (相关热点 / 我的书签 / 全部) */
+    .feed-scope-tabs {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: rgb(var(--c-sunken));
+      border: 1px solid rgb(var(--c-line));
+      border-radius: 9999px;
+      padding: 3px;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .feed-scope-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.42rem;
+      background: transparent;
+      border: none;
+      border-radius: 9999px;
+      padding: 0.35rem 0.8rem;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: rgb(var(--c-fg-muted));
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      white-space: nowrap;
+      line-height: 1.2;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .feed-scope-tab:hover {
+      color: rgb(var(--c-fg));
+      background: rgb(var(--c-surface-hover));
+    }
+
+    .feed-scope-tab.active {
+      background: rgb(var(--c-surface));
+      color: rgb(var(--c-brand-bright));
+      font-weight: 600;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .feed-scope-tab[data-scope="discovery"].active {
+      color: #ea580c;
+    }
+
+    .scope-badge {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.1rem 0.42rem;
+      border-radius: 9999px;
+      background: rgb(var(--c-sunken));
+      color: rgb(var(--c-fg-subtle));
+      line-height: 1.2;
+    }
+
+    .feed-scope-tab.active .scope-badge {
+      background: rgb(var(--c-brand) / 0.14);
+      color: rgb(var(--c-brand-bright));
+    }
+
+    .feed-scope-tab[data-scope="discovery"].active .scope-badge {
+      background: rgba(234, 88, 12, 0.16);
+      color: #ea580c;
+    }
+
+    .control-divider {
+      width: 1px;
+      height: 20px;
+      background: rgb(var(--c-line));
+      margin: 0 0.15rem;
+      flex-shrink: 0;
+    }
+
     .sort-pills-wrap {
       display: flex;
       align-items: center;
@@ -675,6 +767,39 @@ html, body {
         flex-direction: column;
         align-items: stretch;
         gap: 0.55rem;
+      }
+
+      .control-primary-wrap {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.45rem;
+      }
+
+      .feed-scope-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      .feed-scope-tabs {
+        display: flex;
+        flex: 1;
+        width: 100%;
+      }
+
+      .feed-scope-tab {
+        flex: 1;
+        justify-content: center;
+        padding: 0.32rem 0.45rem;
+        font-size: 0.76rem;
+        gap: 0.3rem;
+      }
+
+      .control-divider {
+        display: none;
       }
 
       /* 移动端将操作行 (分类抽屉按钮 + 视图模式) 排在上方第一行 */

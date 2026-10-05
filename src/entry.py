@@ -96,7 +96,7 @@ async def on_fetch(request, env):
 
             if action == "delete":
                 await delete_tweet_from_storage(env, tweet_id)
-            elif action == "create" and source_kind == "discovery":
+            elif action == "create":
                 await set_candidate_state(env, tweet_id, "saved")
 
             return json_resp({
@@ -155,19 +155,31 @@ async def on_fetch(request, env):
 
             discovery_items = await get_daily_feed(env)
             bookmark_ids = {str(item.get("id", "")) for item in bookmark_items}
-            merged = list(bookmark_items)
-            merged.extend(
+            active_discovery = [
                 item for item in discovery_items
-                if str(item.get("id", "")) not in bookmark_ids
-            )
+                if str(item.get("id", "")) not in bookmark_ids and item.get("discovery_state") not in ("saved", "hidden")
+            ]
+            for item in active_discovery:
+                item["source_kind"] = "discovery"
+                item["is_bookmark"] = False
+
+            requested_scope = str(query.get("scope", "") or "").lower()
+            if requested_scope == "discovery":
+                data_list = active_discovery
+            elif requested_scope == "bookmarks":
+                data_list = bookmark_items
+            else:
+                data_list = list(bookmark_items)
+                data_list.extend(active_discovery)
+
             return json_resp({
                 "success": bool(bookmarks.get("success", True)),
                 "source": "Bookmarks + Daily Discovery",
-                "total": len(merged),
+                "total": len(data_list),
                 "bookmark_count": len(bookmark_items),
-                "discovery_count": len(merged) - len(bookmark_items),
+                "discovery_count": len(active_discovery),
                 "preference_evidence_pairs": bookmarks.get("preference_evidence_pairs", 0),
-                "data": merged,
+                "data": data_list,
             }, 200, cache_seconds=0)
 
         if path == "/api/discovery/status":

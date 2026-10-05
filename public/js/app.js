@@ -29,6 +29,61 @@ function saveUnbookmarked() {
   localStorage.setItem(UNBOOKMARKED_KEY, JSON.stringify(Array.from(unbookmarkedIds)));
 }
 
+// 核心数据流视角: "discovery" (相关热点发现) | "bookmarks" (我的书签知识库) | "all" (全部)
+var activeFeedScope = "discovery";
+
+function updateFeedScopeCounts() {
+  let discoveryCount = 0;
+  let bookmarksCount = 0;
+  (tweets || []).forEach(item => {
+    const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
+    if (isSaved && !unbookmarkedIds.has(item.id)) {
+      bookmarksCount++;
+    } else if (item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden") {
+      discoveryCount++;
+    }
+  });
+  const elDisc = document.getElementById("discoveryScopeCount");
+  const elBook = document.getElementById("bookmarksScopeCount");
+  const elAll = document.getElementById("allScopeCount");
+  if (elDisc) elDisc.textContent = discoveryCount;
+  if (elBook) elBook.textContent = bookmarksCount;
+  if (elAll) elAll.textContent = discoveryCount + bookmarksCount;
+  return { discoveryCount, bookmarksCount, allCount: discoveryCount + bookmarksCount };
+}
+
+function updateFeedScopeUI() {
+  const scopeTabs = document.querySelectorAll(".feed-scope-tab");
+  scopeTabs.forEach(tab => {
+    const isMatch = tab.dataset.scope === activeFeedScope;
+    tab.classList.toggle("active", isMatch);
+    tab.setAttribute("aria-selected", isMatch ? "true" : "false");
+  });
+  window.activeFeedScope = activeFeedScope;
+}
+
+function setFeedScope(newScope) {
+  if (!newScope) return;
+  activeFeedScope = newScope;
+  window.activeFeedScope = activeFeedScope;
+  if (newScope === "discovery" && sortMode === "bookmark_desc") {
+    sortMode = "related_hot_desc";
+    window.sortMode = sortMode;
+    const sortPills = document.querySelectorAll(".sort-pill");
+    const sortSelect = document.getElementById("sortSelect");
+    sortPills.forEach(pill => {
+      const isMatch = pill.dataset.sort === "related_hot_desc";
+      pill.classList.toggle("active", isMatch);
+      pill.setAttribute("aria-checked", isMatch ? "true" : "false");
+    });
+    if (sortSelect) sortSelect.value = "related_hot_desc";
+  }
+  updateFeedScopeUI();
+  renderCategories();
+  applyFiltersAndRender(true);
+}
+window.setFeedScope = setFeedScope;
+
 
 const THEME_KEY = "xboard_theme_v1";
 
@@ -170,8 +225,13 @@ async function initApp() {
         tweets = cachedData;
         window.tweets = tweets;
         hasValidCache = true;
+        const counts = updateFeedScopeCounts();
+        if (counts.discoveryCount === 0 && activeFeedScope === "discovery") {
+          activeFeedScope = "bookmarks";
+        }
+        updateFeedScopeUI();
         if (brandSub) {
-          brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文 (本地秒开)`;
+          brandSub.textContent = `Curated Knowledge Portal · ${counts.bookmarksCount} 篇书签 · ${counts.discoveryCount} 篇发现 (本地秒开)`;
         }
         renderCategories();
         applyFiltersAndRender(false);
@@ -206,8 +266,16 @@ async function initApp() {
         localStorage.setItem(CACHE_KEY, JSON.stringify(tweets));
       } catch (e) { /* 配额溢出时静默忽略 */ }
 
+      const counts = updateFeedScopeCounts();
+      if (counts.discoveryCount > 0) {
+        activeFeedScope = "discovery";
+      } else if (counts.discoveryCount === 0 && activeFeedScope === "discovery") {
+        activeFeedScope = "bookmarks";
+      }
+      updateFeedScopeUI();
+
       if (brandSub) {
-        brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
+        brandSub.textContent = `Curated Knowledge Portal · ${counts.bookmarksCount} 篇书签 · ${counts.discoveryCount} 篇发现`;
       }
 
       // 无论篇数是否变化，只要从当前持久化层拉取到最新数据均重新渲染
@@ -232,10 +300,19 @@ async function initApp() {
 }
 
 function renderCategories() {
-      const categoryMap = { "ALL": tweets.length };
+      const scopeItems = (tweets || []).filter(item => {
+        const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
+        const isCurrentlyBookmarked = isSaved && !unbookmarkedIds.has(item.id);
+        const isUnsavedDiscovery = item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden";
+        if (activeFeedScope === "discovery") return isUnsavedDiscovery;
+        if (activeFeedScope === "bookmarks") return isCurrentlyBookmarked;
+        return (isUnsavedDiscovery || isCurrentlyBookmarked);
+      });
+
+      const categoryMap = { "ALL": scopeItems.length };
       const categorySubMap = {};
 
-      tweets.forEach(t => {
+      scopeItems.forEach(t => {
         categoryMap[t.category] = (categoryMap[t.category] || 0) + 1;
         
         const cat = t.category;
@@ -260,7 +337,7 @@ function renderCategories() {
           <span class="category-arrow">•</span>
           <span>全部分类汇总</span>
         </div>
-        <span class="category-count">${tweets.length}</span>
+        <span class="category-count">${scopeItems.length}</span>
       `;
       allBtn.onclick = () => {
         activeCategory = "ALL";
@@ -274,7 +351,7 @@ function renderCategories() {
       if (mobileCatBar) {
         const mobAllChip = document.createElement("button");
         mobAllChip.className = `mobile-cat-chip ${activeCategory === "ALL" ? "active" : ""}`;
-        mobAllChip.innerHTML = `<span>全部</span><span class="count">${tweets.length}</span>`;
+        mobAllChip.innerHTML = `<span>全部</span><span class="count">${scopeItems.length}</span>`;
         mobAllChip.onclick = () => {
           activeCategory = "ALL";
           activeSubCategory = "ALL";
@@ -451,6 +528,16 @@ function setupEventListeners() {
         applyFiltersAndRender();
       });
 
+      // 核心数据流视角切换 (Feed Scope)
+      document.querySelectorAll(".feed-scope-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+          const scope = tab.dataset.scope;
+          if (scope) {
+            setFeedScope(scope);
+          }
+        });
+      });
+
       // 排序平铺胶囊与下拉框事件联动
       const sortPills = document.querySelectorAll(".sort-pill");
       const sortSelect = document.getElementById("sortSelect");
@@ -478,6 +565,9 @@ function setupEventListeners() {
       sortPills.forEach(pill => {
         pill.addEventListener("click", () => {
           const chosenSort = pill.dataset.sort;
+          if (chosenSort === "bookmark_desc" && activeFeedScope === "discovery") {
+            setFeedScope("bookmarks");
+          }
           if (chosenSort && chosenSort !== sortMode) {
             updateSortMode(chosenSort, true);
           }
@@ -752,12 +842,38 @@ function setupEventListeners() {
  * 过滤与排序核心管线（计算出当前匹配的所有推文集合）
  */
 function applyFiltersAndRender(resetScroll = true) {
+  let activeScopeTotal = 0;
+  (tweets || []).forEach(item => {
+    const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
+    const isCurrentlyBookmarked = isSaved && !unbookmarkedIds.has(item.id);
+    const isUnsavedDiscovery = item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden";
+    if (activeFeedScope === "discovery") {
+      if (isUnsavedDiscovery) activeScopeTotal++;
+    } else if (activeFeedScope === "bookmarks") {
+      if (isCurrentlyBookmarked) activeScopeTotal++;
+    } else {
+      if (isUnsavedDiscovery || isCurrentlyBookmarked) activeScopeTotal++;
+    }
+  });
+
   currentFilteredList = tweets.filter(item => {
     const tweetId = item.id;
-    const isCurrentlyBookmarkedOnX =
-      item.is_bookmark !== false &&
-      item.source_kind !== "discovery" &&
-      !unbookmarkedIds.has(tweetId);
+    const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
+    const isCurrentlyBookmarkedOnX = isSaved && !unbookmarkedIds.has(tweetId);
+    const isUnsavedDiscovery = item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden";
+
+    // 1. 数据流视角隔离
+    if (activeFeedScope === "discovery") {
+      // 相关热点：仅看未收藏新发现，严格剔除已收藏的推文！
+      if (!isUnsavedDiscovery) return false;
+    } else if (activeFeedScope === "bookmarks") {
+      // 我的书签：仅看个人书签知识库，剔除未采纳的外部临时候选！
+      if (!isCurrentlyBookmarkedOnX) return false;
+    } else {
+      // 全部视角：排除已从 X 移除且非发现的内容，以及已隐藏的发现
+      if (item.discovery_state === "hidden") return false;
+      if (!isUnsavedDiscovery && !isCurrentlyBookmarkedOnX) return false;
+    }
 
     // 主分类筛选
     if (activeCategory !== "ALL" && item.category !== activeCategory) {
@@ -814,11 +930,47 @@ function applyFiltersAndRender(resetScroll = true) {
   // 更新总数指示器
   const visibleBadge = document.getElementById("visibleCountBadge");
   if (visibleBadge) {
-    visibleBadge.textContent = `显示 ${currentFilteredList.length} / ${tweets.length} 篇`;
+    let scopeLabel = "篇";
+    if (activeFeedScope === "discovery") scopeLabel = "篇 · 相关热点发现";
+    else if (activeFeedScope === "bookmarks") scopeLabel = "篇 · 我的书签";
+    else scopeLabel = "篇 · 全部汇总";
+    visibleBadge.textContent = `显示 ${currentFilteredList.length} / ${activeScopeTotal} ${scopeLabel}`;
   }
 
   const container = document.getElementById("tweetsContainer");
   if (!container) return;
+
+  if (currentFilteredList.length === 0) {
+    if (sentinelObserver) {
+      sentinelObserver.disconnect();
+      sentinelObserver = null;
+    }
+    if (activeFeedScope === "discovery") {
+      container.innerHTML = `
+        <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 4.5rem 1.5rem; background: rgb(var(--c-surface)); border: 1px dashed rgb(var(--c-line)); border-radius: 14px; margin: 1rem 0;">
+          <div style="font-size: 2.8rem; margin-bottom: 0.8rem;">🎉</div>
+          <div style="font-size: 1.15rem; font-weight: 600; color: rgb(var(--c-fg)); margin-bottom: 0.5rem;">今日相关热点已全部阅毕！</div>
+          <div style="font-size: 0.86rem; color: rgb(var(--c-fg-subtle)); max-width: 440px; margin: 0 auto 1.4rem; line-height: 1.6;">
+            当前分类下无待处理候选推荐。可点击右上角「🔥 立即发现」获取新一轮全网热点，或前往「⭐ 我的书签」查阅已收藏知识库。
+          </div>
+          <div style="display: flex; gap: 0.75rem; justify-content: center;">
+            <button class="btn-action" onclick="setFeedScope('bookmarks')" style="padding: 0.45rem 1.1rem; border-color: rgb(var(--c-brand) / 0.4);">
+              <span>⭐ 前往我的书签库</span>
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 4rem 1.5rem; color: rgb(var(--c-fg-subtle));">
+          <div style="font-size: 2.4rem; margin-bottom: 0.6rem;">🔍</div>
+          <div style="font-size: 1.05rem; font-weight: 500; color: rgb(var(--c-fg)); margin-bottom: 0.4rem;">未找到匹配的推文</div>
+          <div style="font-size: 0.82rem;">尝试调整分类筛选条件或清空搜索框</div>
+        </div>
+      `;
+    }
+    return;
+  }
 
   // 首次只流式渲染首批 18 条卡片 (BATCH_SIZE)，其余由触底无感加载追加
   renderedCount = 0;
@@ -909,6 +1061,11 @@ window.dismissDiscovery = async function(tweetId) {
     tweets = tweets.filter(t => String(t.id) !== String(tweetId));
     window.tweets = tweets;
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
+    const counts = updateFeedScopeCounts();
+    const brandSub = document.querySelector(".brand-sub");
+    if (brandSub) {
+      brandSub.textContent = `Curated Knowledge Portal · ${counts.bookmarksCount} 篇书签 · ${counts.discoveryCount} 篇发现`;
+    }
     renderCategories();
     applyFiltersAndRender(false);
     showToast("已标记为不感兴趣，后续推荐会降低类似内容权重");
@@ -930,7 +1087,8 @@ window.toggleXBookmark = async function(tweetId) {
       const isDiscoveryCandidate = Boolean(
         feedbackItem &&
         feedbackItem.source_kind === "discovery" &&
-        feedbackItem.is_bookmark !== true
+        feedbackItem.is_bookmark !== true &&
+        feedbackItem.discovery_state !== "saved"
       );
 
       const currentlySaved = !isDiscoveryCandidate && !unbookmarkedIds.has(tweetId);
@@ -952,19 +1110,18 @@ window.toggleXBookmark = async function(tweetId) {
           if (action === "delete") {
             unbookmarkedIds.add(tweetId);
             // 同步从当前页面内存列表中剔除
-            tweets = tweets.filter(t => t.id !== tweetId);
-            const brandSub = document.querySelector(".brand-sub");
-            if (brandSub) {
-              brandSub.textContent = `Curated Knowledge Portal · ${tweets.length} 篇推文`;
-            }
-            renderCategories();
+            tweets = tweets.filter(t => String(t.id) !== String(tweetId));
+            window.tweets = tweets;
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
             showToast(`已成功从 𝕏 云端移出书签并从 D1 数据库移除 #${tweetId}`);
           } else {
             unbookmarkedIds.delete(tweetId);
             if (feedbackItem) {
               feedbackItem.source_kind = "bookmark";
               feedbackItem.is_bookmark = true;
+              feedbackItem.discovery_state = "saved";
             }
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
             showToast(
               isDiscoveryCandidate
                 ? `已将发现内容收藏到 𝕏 #${tweetId}`
@@ -979,7 +1136,15 @@ window.toggleXBookmark = async function(tweetId) {
             username: feedbackItem ? (feedbackItem.username || "") : "",
             author: feedbackItem ? (feedbackItem.author || "") : ""
           });
-          applyFiltersAndRender();
+
+          // 同步作用域计数器与各分类文章计数
+          const counts = updateFeedScopeCounts();
+          const brandSub = document.querySelector(".brand-sub");
+          if (brandSub) {
+            brandSub.textContent = `Curated Knowledge Portal · ${counts.bookmarksCount} 篇书签 · ${counts.discoveryCount} 篇发现`;
+          }
+          renderCategories();
+          applyFiltersAndRender(false);
 
           if (currentOpenTweet && currentOpenTweet.id === tweetId) {
             updateModalBookmarkBtn();

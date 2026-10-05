@@ -714,7 +714,7 @@ async def get_daily_feed(env, feed_date: str | None = None) -> list[dict]:
         "SELECT d.*, f.rank AS feed_rank, f.final_score AS feed_score "
         "FROM daily_feed f "
         "JOIN discovery_candidates d ON d.tweet_id = f.tweet_id "
-        "WHERE f.feed_date = ? AND d.state != 'hidden' "
+        "WHERE f.feed_date = ? AND d.state NOT IN ('hidden', 'saved') "
         "ORDER BY f.rank ASC"
     ).bind(day).all()
 
@@ -762,7 +762,7 @@ async def set_candidate_state(env, tweet_id: str, state: str) -> tuple[bool, str
         "WHERE tweet_id = ?"
     ).bind(state, _now_iso(), str(tweet_id)).run()
 
-    if state == "hidden":
+    if state in ("hidden", "saved"):
         await env.DB.prepare(
             "DELETE FROM daily_feed WHERE tweet_id = ?"
         ).bind(str(tweet_id)).run()

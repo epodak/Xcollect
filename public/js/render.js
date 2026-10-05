@@ -228,7 +228,7 @@ async function copyTweetMarkdown(tweetId, button = null) {
  */
 function generateTweetCardHtml(item, idx = 0) {
   const tweetId = item.id;
-  const isDiscovery = item.source_kind === "discovery" && item.is_bookmark !== true;
+  const isDiscovery = item.source_kind === "discovery" && item.is_bookmark !== true && item.discovery_state !== "saved";
   const isSavedOnX = !isDiscovery && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const rawSubcat = (item.sub_category || "").trim();
   const displaySubcat = (rawSubcat.includes("/") ? rawSubcat.split("/").pop().trim() : rawSubcat) || (item.category || "").replace(/^\d+_/, "");
@@ -434,7 +434,7 @@ function renderSentinel(container, hasMore, currentCount, totalCount) {
 function updateModalBookmarkBtn() {
   if (!window.currentOpenTweet) return;
   const tweetId = window.currentOpenTweet.id;
-  const isDiscovery = window.currentOpenTweet.source_kind === "discovery" && window.currentOpenTweet.is_bookmark !== true;
+  const isDiscovery = window.currentOpenTweet.source_kind === "discovery" && window.currentOpenTweet.is_bookmark !== true && window.currentOpenTweet.discovery_state !== "saved";
   const isSaved = !isDiscovery && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const btn = document.getElementById("modalToggleBookmark");
   if (btn) {

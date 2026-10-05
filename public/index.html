@@ -138,57 +138,81 @@
     <!-- 主展示区 -->
     <main class="content-area">
       
-      <!-- 控制栏：排序平铺胶囊、视角切换与移动端抽屉唤起 -->
+      <!-- 控制栏：数据流视角切换、排序平铺胶囊、视角切换与移动端抽屉唤起 -->
       <div class="control-bar">
-        <div class="sort-pills-wrap">
-          <button class="btn-action mobile-filter-btn" id="openDrawerBtn" style="display: none;" title="更多筛选" aria-label="更多筛选">
-            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 5h16"></path>
-              <path d="M7 12h10"></path>
-              <path d="M10 19h4"></path>
-            </svg>
-          </button>
-          <span class="sort-label">排序:</span>
-          <div class="sort-pills" id="sortPills" role="radiogroup" aria-label="推文排序方式">
-            <button class="sort-pill active" data-sort="related_hot_desc" role="radio" aria-checked="true" title="综合相关性、内容质量、新颖度、互动速度与新鲜度排序">
-              <span class="pill-icon">🔥</span>
-              <span class="pill-text">相关热点</span>
+        <div class="control-primary-wrap">
+          <div class="feed-scope-row">
+            <button class="btn-action mobile-filter-btn" id="openDrawerBtn" style="display: none;" title="更多筛选" aria-label="更多筛选">
+              <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5h16"></path>
+                <path d="M7 12h10"></path>
+                <path d="M10 19h4"></path>
+              </svg>
             </button>
-            <button class="sort-pill" data-sort="bookmark_desc" role="radio" aria-checked="false" title="按你在 X 中的收藏顺序显示，最近收藏优先">
-              <span class="pill-icon">⭐</span>
-              <span class="pill-text">最近收藏</span>
-            </button>
-            <button class="sort-pill" data-sort="likes_desc" role="radio" aria-checked="false" title="按点赞量从高到低排序">
-              <span class="pill-icon">❤️</span>
-              <span class="pill-text">最多点赞</span>
-            </button>
-            <button class="sort-pill" data-sort="views_desc" role="radio" aria-checked="false" title="按浏览量从高到低排序">
-              <span class="pill-icon">👀</span>
-              <span class="pill-text">最多浏览</span>
-            </button>
-            <button class="sort-pill" data-sort="retweets_desc" role="radio" aria-checked="false" title="按转发量从高到低排序">
-              <span class="pill-icon">🔁</span>
-              <span class="pill-text">最多转发</span>
-            </button>
-            <button class="sort-pill" data-sort="date_desc" role="radio" aria-checked="false" title="按发布时间从新到旧排序">
-              <span class="pill-icon">🕒</span>
-              <span class="pill-text">最新发布</span>
-            </button>
-            <button class="sort-pill" data-sort="date_asc" role="radio" aria-checked="false" title="按发布时间从早到晚排序">
-              <span class="pill-icon">⏳</span>
-              <span class="pill-text">最早发布</span>
-            </button>
+            <div class="feed-scope-tabs" id="feedScopeTabs" role="tablist" aria-label="数据流视角">
+              <button class="feed-scope-tab active" data-scope="discovery" id="scopeBtnDiscovery" role="tab" aria-selected="true" title="全网智能发掘的新热点候选 (未收藏，已剔除既有书签)">
+                <span class="scope-icon">🔥</span>
+                <span class="scope-text">相关热点</span>
+                <span class="scope-badge" id="discoveryScopeCount">0</span>
+              </button>
+              <button class="feed-scope-tab" data-scope="bookmarks" id="scopeBtnBookmarks" role="tab" aria-selected="false" title="你在 X 中已收藏的持久知识库">
+                <span class="scope-icon">⭐</span>
+                <span class="scope-text">我的书签</span>
+                <span class="scope-badge" id="bookmarksScopeCount">0</span>
+              </button>
+              <button class="feed-scope-tab" data-scope="all" id="scopeBtnAll" role="tab" aria-selected="false" title="全部书签与发现候选汇总">
+                <span class="scope-icon">🌐</span>
+                <span class="scope-text">全部</span>
+                <span class="scope-badge" id="allScopeCount">0</span>
+              </button>
+            </div>
           </div>
-          <!-- 兼容隐藏 select 元素 -->
-          <select id="sortSelect" class="sort-select" style="display:none;" aria-hidden="true">
-            <option value="related_hot_desc" selected>相关热点</option>
-            <option value="bookmark_desc">最近收藏</option>
-            <option value="likes_desc">最多点赞</option>
-            <option value="views_desc">最多浏览</option>
-            <option value="retweets_desc">最多转发</option>
-            <option value="date_desc">最新发布</option>
-            <option value="date_asc">最早发布</option>
-          </select>
+
+          <div class="control-divider"></div>
+
+          <div class="sort-pills-wrap">
+            <span class="sort-label">排序:</span>
+            <div class="sort-pills" id="sortPills" role="radiogroup" aria-label="推文排序方式">
+              <button class="sort-pill active" data-sort="related_hot_desc" role="radio" aria-checked="true" title="综合相关性、内容质量、新颖度、互动速度与新鲜度排序">
+                <span class="pill-icon">🔥</span>
+                <span class="pill-text">推荐热度</span>
+              </button>
+              <button class="sort-pill" data-sort="bookmark_desc" role="radio" aria-checked="false" title="按在 X 中的收藏顺序显示，最近收藏优先">
+                <span class="pill-icon">⭐</span>
+                <span class="pill-text">最近收藏</span>
+              </button>
+              <button class="sort-pill" data-sort="likes_desc" role="radio" aria-checked="false" title="按点赞量从高到低排序">
+                <span class="pill-icon">❤️</span>
+                <span class="pill-text">最多点赞</span>
+              </button>
+              <button class="sort-pill" data-sort="views_desc" role="radio" aria-checked="false" title="按浏览量从高到低排序">
+                <span class="pill-icon">👀</span>
+                <span class="pill-text">最多浏览</span>
+              </button>
+              <button class="sort-pill" data-sort="retweets_desc" role="radio" aria-checked="false" title="按转发量从高到低排序">
+                <span class="pill-icon">🔁</span>
+                <span class="pill-text">最多转发</span>
+              </button>
+              <button class="sort-pill" data-sort="date_desc" role="radio" aria-checked="false" title="按发布时间从新到旧排序">
+                <span class="pill-icon">🕒</span>
+                <span class="pill-text">最新发布</span>
+              </button>
+              <button class="sort-pill" data-sort="date_asc" role="radio" aria-checked="false" title="按发布时间从早到晚排序">
+                <span class="pill-icon">⏳</span>
+                <span class="pill-text">最早发布</span>
+              </button>
+            </div>
+            <!-- 兼容隐藏 select 元素 -->
+            <select id="sortSelect" class="sort-select" style="display:none;" aria-hidden="true">
+              <option value="related_hot_desc" selected>推荐热度</option>
+              <option value="bookmark_desc">最近收藏</option>
+              <option value="likes_desc">最多点赞</option>
+              <option value="views_desc">最多浏览</option>
+              <option value="retweets_desc">最多转发</option>
+              <option value="date_desc">最新发布</option>
+              <option value="date_asc">最早发布</option>
+            </select>
+          </div>
         </div>
 
         <div class="control-actions-wrap">
