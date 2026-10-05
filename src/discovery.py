@@ -16,11 +16,13 @@ from config_loader import CONFIG
 try:
     from ranking import compute_related_hot_score, estimate_spam_penalty
     from preferences import apply_preference_profile
+    from learning import load_action_learning_stats, estimate_action_utilities, evidence_confidence
     from twitter import fetch_search_timeline
 except ImportError:
     # Local package-style imports used by acceptance tests.
     from src.ranking import compute_related_hot_score, estimate_spam_penalty
     from src.preferences import apply_preference_profile
+    from src.learning import load_action_learning_stats, estimate_action_utilities, evidence_confidence
     from src.twitter import fetch_search_timeline
 
 try:
@@ -274,43 +276,55 @@ def _feedback_context(event: dict) -> dict:
 
 
 def build_discovery_quality_profile(events: list[dict]) -> dict:
-    """Build a bounded query-level quality penalty from behavioral utility.
+    """Estimate query false-positive risk with a Beta-Binomial posterior.
 
-    Query quality and semantic preference are orthogonal latent fields:
-    - corner × contributes its configured negative utility here only;
-    - open/copy/original/bookmark can offset a noisy query when provenance exists;
-    - “不想看这类” is semantic dislike and must not punish the query itself.
+    No hand-written -10/+10 arithmetic is used here. For each query/tweet:
+    - reject_candidate => one false-positive observation;
+    - any positive engagement => one accepted observation;
+    - impression-only / no action => unknown, not negative;
+    - not_interested is semantic taste and does not judge query quality.
     """
-    utility_by_query = {}
     positive_actions = {"open_detail", "copy", "open_original", "bookmark"}
+    grouped = {}
 
     for event in events or []:
         context = _feedback_context(event)
         query = str(context.get("discovery_query", "") or "").strip()
-        if not query:
+        tweet_id = str(event.get("tweet_id", "") or "").strip()
+        if not query or not tweet_id:
             continue
+        grouped.setdefault((query, tweet_id), set()).add(
+            str(event.get("action", "") or "")
+        )
 
-        action = str(event.get("action", "") or "")
-        scope = str(context.get("feedback_scope", "") or "")
-        try:
-            weight = float(event.get("weight") or 0.0)
-        except Exception:
-            weight = 0.0
+    per_query = {}
+    for (query, _tweet_id), actions in grouped.items():
+        row = per_query.setdefault(query, {"rejects": 0.0, "accepts": 0.0})
+        if "reject_candidate" in actions:
+            row["rejects"] += 1.0
+        elif any(action in actions for action in positive_actions):
+            row["accepts"] += 1.0
 
-        if action == "reject_candidate" or (
-            action == "not_interested" and scope == "discovery_quality"
-        ):
-            utility_by_query[query] = utility_by_query.get(query, 0.0) + min(0.0, weight)
-        elif action in positive_actions:
-            utility_by_query[query] = utility_by_query.get(query, 0.0) + max(0.0, weight)
+    alpha = max(0.001, float(CONFIG.learning_query_reject_prior_alpha))
+    beta = max(0.001, float(CONFIG.learning_query_reject_prior_beta))
+    prior_mean = alpha / (alpha + beta)
+    cap = max(0.0, float(CONFIG.learning_query_penalty_cap))
+    scale = max(0.001, float(CONFIG.learning_query_evidence_scale))
 
-    scale = max(0.001, float(CONFIG.discovery_quality_scale))
-    cap = max(0.0, float(CONFIG.discovery_quality_penalty_cap))
-    return {
-        query: round(cap * math.tanh((-utility) / scale), 6)
-        for query, utility in utility_by_query.items()
-        if utility < 0
-    }
+    out = {}
+    for query, row in per_query.items():
+        rejects = float(row.get("rejects", 0.0) or 0.0)
+        accepts = float(row.get("accepts", 0.0) or 0.0)
+        evidence = rejects + accepts
+        if evidence <= 0:
+            continue
+        posterior = (rejects + alpha) / (evidence + alpha + beta)
+        excess = max(0.0, posterior - prior_mean) / max(1e-9, 1.0 - prior_mean)
+        confidence = evidence_confidence(evidence, scale)
+        penalty = cap * excess * confidence
+        if penalty > 0:
+            out[query] = round(penalty, 6)
+    return out
 
 
 def _score_with_quality_feedback(item: dict, quality_profile: dict) -> tuple[float, dict]:
@@ -521,7 +535,12 @@ async def judge_candidates(env, candidates: list[dict]) -> tuple[list[dict], dic
         return [], {"mode": "none", "ai_calls": 0}
 
     events = await _load_feedback_events(env)
-    preferred, preference_profile = apply_preference_profile(candidates, events)
+    action_stats = await load_action_learning_stats(env)
+    preferred, preference_profile = apply_preference_profile(
+        candidates,
+        events,
+        action_stats=action_stats,
+    )
     quality_profile = build_discovery_quality_profile(events)
 
     for item in preferred:
