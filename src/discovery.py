@@ -836,7 +836,13 @@ async def get_daily_feed(env, feed_date: str | None = None) -> list[dict]:
     if not hasattr(env, "DB"):
         return []
     await ensure_discovery_schema(env)
-    day = feed_date or _today()
+
+    day = feed_date
+    if not day:
+        latest = await env.DB.prepare("SELECT MAX(feed_date) AS feed_date FROM daily_feed").all()
+        day = str(_row_get(latest.results[0], "feed_date", "") or "") if latest.results else ""
+    if not day:
+        return []
 
     res = await env.DB.prepare(
         "SELECT d.*, f.rank AS feed_rank, f.final_score AS feed_score "
@@ -846,8 +852,15 @@ async def get_daily_feed(env, feed_date: str | None = None) -> list[dict]:
         "ORDER BY f.rank ASC"
     ).bind(day).all()
 
+    now = datetime.now(timezone.utc)
     items = []
     for row in res.results:
+        if not _within_retention(
+            _row_get(row, "created_at", ""),
+            _row_get(row, "first_seen_at", ""),
+            now=now,
+        ):
+            continue
         payload = _json_obj(_row_get(row, "payload_json", "{}"))
         state = str(_row_get(row, "state", "") or "")
         payload.update({
