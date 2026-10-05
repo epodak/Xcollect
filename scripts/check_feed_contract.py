@@ -36,6 +36,14 @@ assert 'trigger="bookmark-create"' in entry
 assert "reconcile_candidate_promotions" in sync_service
 assert "'saved_pending'" in discovery
 
+# Rolling freshness is a hard retention boundary, not a calendar-day UI filter.
+assert "async def purge_expired_discovery" in discovery
+assert "CONFIG.discovery_retention_hours" in discovery
+assert "DELETE FROM feedback_events" in discovery
+assert "DELETE FROM discovery_candidates" in discovery
+assert "purge_expired_discovery(env)" in discovery
+assert "current_feed_count, _ = await materialize_daily_feed(env)" in discovery
+
 # Manual reject is terminal and reply leakage is gated before expensive AI.
 assert '"reject_candidate": "rejected"' in entry
 assert 'action == "reject_candidate"' in discovery
