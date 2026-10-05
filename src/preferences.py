@@ -10,7 +10,11 @@ only derives bounded preference fields.
 import json
 
 from config_loader import CONFIG
-from learning import estimate_action_utilities, evidence_confidence
+
+try:
+    from learning import estimate_action_utilities, evidence_confidence
+except ImportError:
+    from src.learning import estimate_action_utilities, evidence_confidence
 
 
 def _key(value) -> str:
