@@ -22,6 +22,73 @@ var currentOpenTweet = null;
 var isXConfigured = false;
 var sentinelObserver = null;
 
+// Valid impression = >= 50% card visibility sustained for >= 1.5s.
+// It is intentionally session-deduped; backend learning also dedupes (tweet, action).
+var impressionObserver = null;
+var impressionTimers = new Map();
+var impressionVisible = new Set();
+var impressionRecorded = new Set();
+const IMPRESSION_MIN_RATIO = 0.50;
+const IMPRESSION_MIN_MS = 1500;
+
+function ensureImpressionObserver() {
+  if (impressionObserver) return impressionObserver;
+
+  impressionObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const card = entry.target;
+      const tweetId = String(card && card.dataset ? (card.dataset.key || "") : "");
+      if (!tweetId) return;
+
+      const visibleEnough = entry.isIntersecting && entry.intersectionRatio >= IMPRESSION_MIN_RATIO;
+      if (!visibleEnough) {
+        impressionVisible.delete(tweetId);
+        const pending = impressionTimers.get(tweetId);
+        if (pending) clearTimeout(pending);
+        impressionTimers.delete(tweetId);
+        return;
+      }
+
+      const item = tweets.find(t => String(t.id) === tweetId);
+      if (!isUnsavedDiscoveryItem(item) || impressionRecorded.has(tweetId)) return;
+
+      impressionVisible.add(tweetId);
+      if (impressionTimers.has(tweetId)) return;
+
+      const timer = setTimeout(() => {
+        impressionTimers.delete(tweetId);
+        if (!impressionVisible.has(tweetId) || impressionRecorded.has(tweetId)) return;
+
+        const current = tweets.find(t => String(t.id) === tweetId);
+        if (!isUnsavedDiscoveryItem(current)) return;
+
+        impressionRecorded.add(tweetId);
+        recordTweetFeedback(tweetId, "impression", {
+          surface: "feed",
+          rank_position: Number(card.dataset.rankPosition || 0),
+          viewport_ratio: IMPRESSION_MIN_RATIO,
+          visible_ms: IMPRESSION_MIN_MS
+        });
+      }, IMPRESSION_MIN_MS);
+
+      impressionTimers.set(tweetId, timer);
+    });
+  }, {
+    root: null,
+    threshold: [0, IMPRESSION_MIN_RATIO, 0.75, 1]
+  });
+
+  return impressionObserver;
+}
+
+window.observeTweetImpressions = function(container) {
+  const observer = ensureImpressionObserver();
+  const root = container || document;
+  root.querySelectorAll(".tweet-card.is-discovery[data-key]").forEach(card => {
+    observer.observe(card);
+  });
+};
+
 const UNBOOKMARKED_KEY = "twitter_curated_unbookmarked_ids_v1";
 var unbookmarkedIds = new Set(JSON.parse(localStorage.getItem(UNBOOKMARKED_KEY) || "[]"));
 
