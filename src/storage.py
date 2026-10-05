@@ -349,7 +349,7 @@ async def record_feedback_event(
     # it reuses the configured negative magnitude but must not masquerade as
     # topic-level not_interested evidence.
     if action == "reject_candidate":
-        weight = float(CONFIG.feedback_weights.get("not_interested", -1.20))
+        weight = float(CONFIG.feedback_weights.get("reject_candidate", -10.0))
     elif action in CONFIG.feedback_weights:
         weight = float(CONFIG.feedback_weights[action])
     else:
