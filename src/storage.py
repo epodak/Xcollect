@@ -15,7 +15,11 @@ from config_loader import CONFIG
 from classifier import rule_classify_tweet, get_existing_categories, ai_classify_tweet
 from ranking import enrich_related_hot_many
 from preferences import apply_preference_profile
-from learning import load_action_learning_stats, update_action_calibration
+
+try:
+    from learning import load_action_learning_stats, update_action_calibration
+except ImportError:
+    from src.learning import load_action_learning_stats, update_action_calibration
 
 try:
     from js import Response, Headers, Object as JsObject
