@@ -939,36 +939,55 @@ async def purge_expired_discovery(env, now=None) -> dict:
             if tweet_id:
                 expired_ids.append(tweet_id)
 
-    if not expired_ids:
-        return {"expired_candidates": 0, "purged_feedback": 0}
-
-    ids_json = json.dumps(expired_ids, ensure_ascii=False)
-
-    await env.DB.prepare(
-        "DELETE FROM daily_feed WHERE tweet_id IN (SELECT value FROM json_each(?))"
-    ).bind(ids_json).run()
-
     purged_feedback = 0
-    try:
-        before = await env.DB.prepare(
-            "SELECT COUNT(*) AS total FROM feedback_events "
-            "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
-            "AND tweet_id NOT IN (SELECT id FROM tweets)"
-        ).bind(ids_json).all()
-        purged_feedback = int(_row_get(before.results[0], "total", 0) or 0) if before.results else 0
+
+    if expired_ids:
+        ids_json = json.dumps(expired_ids, ensure_ascii=False)
+
         await env.DB.prepare(
-            "DELETE FROM feedback_events "
-            "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
-            "AND tweet_id NOT IN (SELECT id FROM tweets)"
+            "DELETE FROM daily_feed WHERE tweet_id IN (SELECT value FROM json_each(?))"
         ).bind(ids_json).run()
+
+        try:
+            before = await env.DB.prepare(
+                "SELECT COUNT(*) AS total FROM feedback_events "
+                "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
+                "AND tweet_id NOT IN (SELECT id FROM tweets)"
+            ).bind(ids_json).all()
+            purged_feedback += int(_row_get(before.results[0], "total", 0) or 0) if before.results else 0
+            await env.DB.prepare(
+                "DELETE FROM feedback_events "
+                "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
+                "AND tweet_id NOT IN (SELECT id FROM tweets)"
+            ).bind(ids_json).run()
+        except Exception:
+            pass
+
+        await env.DB.prepare(
+            "DELETE FROM discovery_candidates "
+            "WHERE tweet_id IN (SELECT value FROM json_each(?))"
+        ).bind(ids_json).run()
+
+    # Also clean orphaned ephemeral feedback left by older builds or partial
+    # migrations. Durable bookmark IDs remain exempt.
+    try:
+        cutoff_iso = (
+            now - timedelta(hours=float(CONFIG.discovery_retention_hours))
+        ).isoformat()
+        orphan_before = await env.DB.prepare(
+            "SELECT COUNT(*) AS total FROM feedback_events "
+            "WHERE created_at <= ? AND tweet_id NOT IN (SELECT id FROM tweets)"
+        ).bind(cutoff_iso).all()
+        orphan_count = int(_row_get(orphan_before.results[0], "total", 0) or 0) if orphan_before.results else 0
+        if orphan_count:
+            await env.DB.prepare(
+                "DELETE FROM feedback_events "
+                "WHERE created_at <= ? AND tweet_id NOT IN (SELECT id FROM tweets)"
+            ).bind(cutoff_iso).run()
+            purged_feedback += orphan_count
     except Exception:
         # feedback_events is lazy-created; absence means there is nothing to purge.
-        purged_feedback = 0
-
-    await env.DB.prepare(
-        "DELETE FROM discovery_candidates "
-        "WHERE tweet_id IN (SELECT value FROM json_each(?))"
-    ).bind(ids_json).run()
+        pass
 
     return {
         "expired_candidates": len(expired_ids),
