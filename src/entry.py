@@ -94,16 +94,46 @@ async def on_fetch(request, env):
             if not ok:
                 return json_resp({"success": False, "message": msg}, 400)
 
+            promotion_state = ""
+            promotion_sync = None
             if action == "delete":
                 await delete_tweet_from_storage(env, tweet_id)
+            elif action == "create" and source_kind == "discovery":
+                # X 已接受收藏，但在 tweets 主库确认之前不能假装成 Durable Bookmark。
+                # 先退出 Discovery Inbox，再通过真实 Bookmark Sync 完成 Promotion。
+                await set_candidate_state(env, tweet_id, "saved_pending")
+                sync_status, sync_payload = await perform_cloud_sync(
+                    env,
+                    trigger="bookmark-create",
+                    force_reconcile=False,
+                )
+                promotion_sync = {
+                    "status": sync_status,
+                    "success": bool(sync_payload.get("success")),
+                    "message": sync_payload.get("message", ""),
+                }
+                readback = await load_tweets(env, bypass_cache=True)
+                durable_ids = {
+                    str(item.get("id", ""))
+                    for item in (readback.get("data") or [])
+                    if item.get("id")
+                }
+                if tweet_id in durable_ids:
+                    await set_candidate_state(env, tweet_id, "saved")
+                    promotion_state = "saved"
+                else:
+                    promotion_state = "saved_pending"
             elif action == "create":
-                await set_candidate_state(env, tweet_id, "saved")
+                # 普通书签恢复沿用既有语义；Discovery 才需要 Promotion bridge。
+                promotion_state = "saved"
 
             return json_resp({
                 "success": True,
                 "message": msg,
                 "action": action,
                 "tweet_id": tweet_id,
+                "promotion_state": promotion_state,
+                "promotion_sync": promotion_sync,
             })
 
         if path == "/api/feedback" and method == "POST":
@@ -157,7 +187,8 @@ async def on_fetch(request, env):
             bookmark_ids = {str(item.get("id", "")) for item in bookmark_items}
             active_discovery = [
                 item for item in discovery_items
-                if str(item.get("id", "")) not in bookmark_ids and item.get("discovery_state") not in ("saved", "hidden")
+                if str(item.get("id", "")) not in bookmark_ids
+                and item.get("discovery_state") not in ("saved", "saved_pending", "hidden", "rejected")
             ]
             for item in active_discovery:
                 item["source_kind"] = "discovery"
@@ -201,6 +232,8 @@ async def on_fetch(request, env):
             state_map = {
                 "not_interested": "hidden",
                 "hide": "hidden",
+                # “误抓/不该进入发现流”与“不喜欢这个话题”是两种不同反馈。
+                "reject_candidate": "rejected",
                 "saved": "saved",
             }
             state = state_map.get(action, action)
