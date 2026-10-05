@@ -236,17 +236,16 @@ def build_discovery_quality_profile(events: list[dict]) -> dict:
     raw_by_query = {}
     for event in events or []:
         context = _feedback_context(event)
-        if str(context.get("feedback_scope", "") or "") != "discovery_quality":
-            continue
         query = str(context.get("discovery_query", "") or "").strip()
         if not query:
             continue
 
         action = str(event.get("action", "") or "")
-        # Current false-positive UI records the configured not_interested event
-        # with discovery_quality scope. Positive accepted candidates can offset
-        # query-level penalty when they carry the same provenance.
-        if action == "not_interested":
+        scope = str(context.get("feedback_scope", "") or "")
+        # False-positive reject is explicitly scoped to discovery quality.
+        # Positive acceptance signals may use normal preference scope; their
+        # provenance still offsets a noisy query without changing topic taste.
+        if action == "not_interested" and scope == "discovery_quality":
             raw_by_query[query] = raw_by_query.get(query, 0.0) + 1.0
         elif action == "bookmark":
             raw_by_query[query] = raw_by_query.get(query, 0.0) - 0.50
@@ -767,7 +766,7 @@ async def materialize_daily_feed(env) -> tuple[int, list[dict]]:
             await env.DB.prepare(
                 f"UPDATE discovery_candidates SET state = 'selected' "
                 f"WHERE tweet_id IN ({placeholders}) "
-                "AND state NOT IN ('hidden','saved')"
+                "AND state NOT IN ('hidden','rejected','saved_pending','saved')"
             ).bind(*ids).run()
 
     return len(selected), selected
