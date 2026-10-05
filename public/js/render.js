@@ -237,7 +237,6 @@ function generateTweetCardHtml(item, idx = 0) {
   const displaySubcat = (rawSubcat.includes("/") ? rawSubcat.split("/").pop().trim() : rawSubcat) || (item.category || "").replace(/^\d+_/, "");
   const isBadgeActive = (window.activeSubCategory !== "ALL" && (window.activeSubCategory === rawSubcat || window.activeSubCategory === displaySubcat));
   const subcatBadge = `<span class="badge-subcat ${isBadgeActive ? 'active' : ''}" onclick="event.stopPropagation(); selectSubCategory('${escapeHtml(displaySubcat)}', '${escapeHtml(item.category)}')" title="点击在侧边栏筛选「${escapeHtml(displaySubcat)}」领域">${escapeHtml(displaySubcat)}</span>`;
-  const sourceBadge = isDiscovery ? `<span class="badge-discovery" title="由 Personal Discovery 自动发现">🔥 发现</span>` : "";
   
   const hasImages = Array.isArray(item.images) && item.images.length > 0;
   const hasVideos = Array.isArray(item.videos) && item.videos.length > 0;
@@ -305,7 +304,6 @@ function generateTweetCardHtml(item, idx = 0) {
             </div>
           </div>
           <div class="card-badges">
-            ${sourceBadge}
             ${subcatBadge}
           </div>
         </div>

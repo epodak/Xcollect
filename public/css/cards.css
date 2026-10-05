@@ -201,16 +201,7 @@
     }
 
     .badge-discovery {
-      font-size: 0.7rem;
-      font-weight: 600;
-      font-family: var(--font-mono);
-      color: rgb(var(--c-accent));
-      background: rgb(var(--c-accent) / 0.10);
-      border: 1px solid rgb(var(--c-accent) / 0.30);
-      padding: 0.18rem 0.5rem;
-      border-radius: 9999px;
-      white-space: nowrap;
-      flex-shrink: 0;
+      display: none;
     }
     .badge-subcat {
       font-size: 0.72rem;
