@@ -198,7 +198,7 @@ def append_local_feedback(event_id, tweet_id, action, context=None):
         return False, "event_id 和 tweet_id 不能为空", {}
 
     if action == "reject_candidate":
-        feedback_weight = float(CONFIG.feedback_weights.get("not_interested", -1.20))
+        feedback_weight = float(CONFIG.feedback_weights.get("reject_candidate", -10.0))
     elif action in CONFIG.feedback_weights:
         feedback_weight = float(CONFIG.feedback_weights[action])
     else:
