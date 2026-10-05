@@ -1102,7 +1102,7 @@ window.rejectDiscoveryCandidate = async function(tweetId) {
 
     // 复用已配置的负反馈权重，但把 scope 切到 discovery_quality。
     // preferences.py 会忽略这条证据，因此不会误伤用户对数据库/作者/主题的兴趣。
-    recordTweetFeedback(tweetId, "not_interested", {
+    recordTweetFeedback(tweetId, "reject_candidate", {
       surface: "feed",
       feedback_scope: "discovery_quality",
       reject_reason: "wrong_candidate",
