@@ -159,6 +159,7 @@ class AppConfig:
         discovery_cfg = parsed.get("discovery", {})
         self.discovery_enabled = bool(discovery_cfg.get("enabled", True))
         self.discovery_interval_hours = float(discovery_cfg.get("interval_hours", 2.0))
+        self.discovery_retention_hours = float(discovery_cfg.get("retention_hours", 24.0))
         self.discovery_queries_per_run = int(discovery_cfg.get("queries_per_run", 3))
         self.discovery_search_count = int(discovery_cfg.get("search_count", 60))
         self.discovery_max_pages_per_query = int(discovery_cfg.get("max_pages_per_query", 1))
@@ -192,14 +193,20 @@ class AppConfig:
 
         feedback_cfg = parsed.get("feedback", {})
         self.feedback_weights = {
-            "open_detail": float(feedback_cfg.get("open_detail_weight", 0.15)),
-            "copy": float(feedback_cfg.get("copy_weight", 0.80)),
-            "open_original": float(feedback_cfg.get("open_original_weight", 0.30)),
-            "bookmark": float(feedback_cfg.get("bookmark_weight", 1.00)),
-            "unbookmark": float(feedback_cfg.get("unbookmark_weight", -1.00)),
-            "not_interested": float(feedback_cfg.get("not_interested_weight", -1.20)),
-            "hide_author": float(feedback_cfg.get("hide_author_weight", -2.00)),
+            "open_detail": float(feedback_cfg.get("open_detail_weight", 1.0)),
+            "copy": float(feedback_cfg.get("copy_weight", 5.0)),
+            "open_original": float(feedback_cfg.get("open_original_weight", 10.0)),
+            "bookmark": float(feedback_cfg.get("bookmark_weight", 50.0)),
+            "unbookmark": float(feedback_cfg.get("unbookmark_weight", -50.0)),
+            "reject_candidate": float(feedback_cfg.get("reject_candidate_weight", -10.0)),
+            "not_interested": float(feedback_cfg.get("not_interested_weight", -50.0)),
+            "hide_author": float(feedback_cfg.get("hide_author_weight", -100.0)),
         }
+        self.preference_category_scale = float(feedback_cfg.get("preference_category_scale", 150.0))
+        self.preference_subcategory_scale = float(feedback_cfg.get("preference_subcategory_scale", 100.0))
+        self.preference_author_scale = float(feedback_cfg.get("preference_author_scale", 100.0))
+        self.discovery_quality_scale = float(feedback_cfg.get("discovery_quality_scale", 30.0))
+        self.discovery_quality_penalty_cap = float(feedback_cfg.get("discovery_quality_penalty_cap", 0.10))
 
         # 拓扑重整化 (严格来自 config.toml 单一真源)
         topology_cfg = parsed.get("topology", {})
