@@ -159,6 +159,47 @@ The first online trainer is deliberately small and bounded:
 This means a few actions can steer the feed, but cannot immediately collapse it
 into an echo chamber.
 
+The current bounded transforms are:
+
+```text
+category_signal    = tanh(sum(utility) / 150)
+subcategory_signal = tanh(sum(utility) / 100)
+author_signal      = tanh(sum(utility) / 100)
+
+preference_boost
+  = 0.06 * category_signal
+  + 0.10 * subcategory_signal
+  + 0.06 * author_signal
+
+query_quality_penalty
+  = 0.10 * tanh(max(0, -sum(query_utility)) / 30)
+```
+
+Therefore a single title open is weak evidence, opening the original is roughly
+an order of magnitude stronger, and bookmarking is strong evidence without
+being a literal +50 ranking-point jump. A single false-positive × creates only
+a bounded query-quality penalty; an open-original (+10) on another result from
+the same query can offset one × (-10).
+
+## Two-timescale learning
+
+Discovery intentionally has a fast and a slow memory:
+
+```text
+Fast field
+= unpromoted Discovery interactions
+= detail/original/copy/reject/not-interested
+= expires with the source-post 24h window
+
+Slow field
+= objects explicitly promoted into Bookmarks
+= durable knowledge + durable bookmark evidence
+= not governed by Discovery TTL
+```
+
+This gives the system short-term adaptation without letting yesterday's
+unaccepted feed become a permanent hidden training corpus.
+
 Client feedback is best-effort and must never block reading, copying, opening X
 or bookmark actions. Failed events are queued locally and retried later.
 
