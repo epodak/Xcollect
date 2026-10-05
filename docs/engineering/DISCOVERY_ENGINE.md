@@ -97,6 +97,7 @@ Current actions already produce preference signals:
 | open_original | +0.30 |
 | bookmark | +1.00 |
 | unbookmark | -1.00 |
+| reject_candidate | uses the configured negative magnitude, but is routed only to Discovery-quality learning |
 | not_interested | -1.20 |
 | hide_author | -2.00 |
 
@@ -133,6 +134,20 @@ into an echo chamber.
 
 Client feedback is best-effort and must never block reading, copying, opening X
 or bookmark actions. Failed events are queued locally and retried later.
+
+Feedback has two orthogonal learning projections:
+
+```text
+reject_candidate + feedback_scope=discovery_quality
+    -> query/source/gate quality
+    -> excluded from category/sub-category/author preference
+
+not_interested + normal preference scope
+    -> category/sub-category/author preference
+```
+
+This separation is intentional. “The system fetched the wrong object” is not the
+same statement as “the system found the right object but I dislike the topic.”
 
 ## Discovery storage objects
 
@@ -234,7 +249,10 @@ The live Discovery Plane now includes:
 - daily-feed materialization with author / sub-category / category caps;
 - `/api/feed`, `/api/discovery/status`, `/api/discovery/run` and
   `/api/discovery/action`;
-- a distinct discovery-card interaction: save to X or mark as not interested.
+- distinct discovery-card interactions:
+  - corner `×` for false-positive/wrong-candidate rejection;
+  - “不想看这类” for semantic preference rejection;
+  - save to X with two-phase `saved_pending -> saved` promotion confirmation.
 
 The current judge deliberately uses small synchronous Workers AI micro-batches
 (up to 12 candidates per call) because the existing Worker AI binding requires
@@ -249,3 +267,7 @@ Still pending:
 - trusted-author graph expansion;
 - learned query expansion from positive/negative feedback;
 - asynchronous AI Batch submission and resume states.
+
+## Maintenance contract
+
+Future agents changing this subsystem should use `.agents/skills/discovery-plane/SKILL.md` as the operational playbook. The architectural invariant remains in `AGENTS.md`, while executable regressions are locked by `scripts/check_discovery.py`, `scripts/check_feed_contract.py`, and `scripts/check_related_hot.py`.
