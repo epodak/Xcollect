@@ -123,22 +123,28 @@ The UI may say “waiting for sync confirmation” while pending, but must not f
 
 ## Feedback learning rules
 
-- Behavioral utilities are relative evidence units, not direct ranking points:
-  - detail/title open ≈ +1;
-  - copy ≈ +5;
-  - open original ≈ +10;
-  - bookmark ≈ +50;
-  - corner × false positive ≈ -10 in Discovery-quality only;
-  - “不想看这类” ≈ -50 in semantic preference;
-  - unbookmark offsets prior bookmark evidence.
-- Aggregate evidence first, then squash it into bounded fields; never add +50 directly to `related_hot_score`.
-- `feedback_events` is immutable during its retention window, not eternal.
-- When an unpromoted Discovery candidate expires at 24h source age, purge its ephemeral feedback events too.
+- Never hard-code action ratios such as `+1/+10/+50` as product truth.
+- Human/product policy defines only:
+  - semantic meaning;
+  - positive/negative sign;
+  - ordinal order (`open_detail < copy < open_original < bookmark`);
+  - orthogonal scope (Discovery quality vs semantic preference).
+- A valid `impression` requires at least 50% card visibility for at least 1.5 seconds.
+- Rendered-but-never-viewed items are unknown, not negative examples.
+- Positive action magnitude is calibrated from the user's own `P(bookmark | action)` statistics.
+- Calibration state is aggregate sufficient statistics only; it must not retain tweet text or tweet IDs.
+- Calibration statistics decay over time; current default half-life is 30 days.
+- With sparse data, bootstrap from ordinal rank only; observed conversion data must progressively take control.
+- Enforce monotonic utility with isotonic projection so sampling noise cannot invert the product order.
+- Resolve one strongest semantic vote per tweet. A normal funnel (`detail -> original -> bookmark`) is not three additive votes.
+- `unbookmark` withdraws the bookmark vote; it is not equivalent to “不想看这类”.
+- Query quality is learned separately from a reject-vs-accepted posterior; semantic dislike must not punish the query.
+- Raw unpromoted Discovery events expire with the 24h candidate TTL.
+- Decayed aggregate calibration may survive raw-event deletion because it contains no raw candidate identity/content.
 - Durable Bookmark evidence is exempt from Discovery TTL.
-- Preference aggregation must be reproducible from retained events.
-- Discovery-quality events are excluded from topic/author preference aggregation.
-- Query-quality penalties must be bounded; one accidental rejection must not destroy a useful discovery channel.
-- Positive actions carrying discovery provenance may offset noisy-query penalties.
+- Keep a small exploration budget among candidates that already passed quality gates.
+- Preference and query-quality outputs must remain bounded.
+
 
 ## Change procedure
 
