@@ -177,7 +177,7 @@ At minimum the change must preserve:
 - read projection cannot show expired rows between GC ticks;
 - reply leakage rejected before AI;
 - false-positive × does not alter topic preference;
-- behavior utility hierarchy remains +1 / +10 / +50 and -10 / -50 before bounded squash;
+- action magnitude remains learned from conversion statistics; no fixed +1/+10/+50 ratios reappear;
 - `saved_pending` is not counted as a bookmark;
 - promotion only completes after durable read-back;
 - filtered-zero is not Inbox Zero;
