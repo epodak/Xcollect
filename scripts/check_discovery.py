@@ -3,6 +3,7 @@
 """Deterministic acceptance checks for the Discovery Plane."""
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +15,7 @@ from src.discovery import (
     cheap_gate_candidate,
     diversity_select,
     build_discovery_quality_profile,
+    _within_retention,
     _parse_judge_array,
     _post_judge_rejection_reason,
 )
@@ -33,6 +35,7 @@ def _candidate(idx, **overrides):
         "likes": 100 + idx,
         "retweets": 10,
         "views": 10000,
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "related_hot_score": 1.0 - idx * 0.001,
     }
     row.update(overrides)
@@ -41,6 +44,12 @@ def _candidate(idx, **overrides):
 
 def main():
     assert CONFIG.discovery_enabled is True
+    assert CONFIG.discovery_retention_hours == 24.0
+    assert CONFIG.feedback_weights["open_detail"] == 1.0
+    assert CONFIG.feedback_weights["open_original"] == 10.0
+    assert CONFIG.feedback_weights["bookmark"] == 50.0
+    assert CONFIG.feedback_weights["reject_candidate"] == -10.0
+    assert CONFIG.feedback_weights["not_interested"] == -50.0
     assert CONFIG.query_id_search
     assert isinstance(CONFIG.discovery_queries, list) and CONFIG.discovery_queries
 
@@ -64,6 +73,21 @@ def main():
     ok, reason, penalty = cheap_gate_candidate(clean)
     assert ok and reason == ""
     assert penalty < CONFIG.discovery_cheap_penalty_threshold
+
+    now = datetime.now(timezone.utc)
+    expired = _candidate(5, created_at=(now - timedelta(hours=24, seconds=1)).isoformat())
+    ok, reason, _ = cheap_gate_candidate(expired)
+    assert not ok and reason == "expired_source"
+    assert not _within_retention(expired["created_at"], now=now)
+
+    fresh = _candidate(6, created_at=(now - timedelta(hours=23, minutes=59)).isoformat())
+    ok, reason, _ = cheap_gate_candidate(fresh)
+    assert ok and reason == ""
+    assert _within_retention(fresh["created_at"], now=now)
+
+    unknown_time = _candidate(7, created_at="")
+    ok, reason, _ = cheap_gate_candidate(unknown_time)
+    assert not ok and reason == "unknown_source_time"
 
     # Author cap: even a dominant author cannot fill the daily attention budget.
     rows = []
@@ -155,7 +179,7 @@ def main():
     quality_event = {
         "tweet_id": "q1",
         "action": "reject_candidate",
-        "weight": -1.2,
+        "weight": -10.0,
         "context": {
             "feedback_scope": "discovery_quality",
             "discovery_query": "sqlite benchmark",
@@ -175,16 +199,46 @@ def main():
 
     quality_only = build_discovery_quality_profile([quality_event])
     assert quality_only["sqlite benchmark"] > 0
-    quality_with_accept = build_discovery_quality_profile([
+
+    # Opening the original (+10) offsets one false-positive × (-10) at query-quality level.
+    quality_with_original = build_discovery_quality_profile([
         quality_event,
         {
             "tweet_id": "q2",
-            "action": "bookmark",
-            "weight": 1.0,
+            "action": "open_original",
+            "weight": 10.0,
             "context": {"discovery_query": "sqlite benchmark"},
         },
     ])
-    assert 0 <= quality_with_accept.get("sqlite benchmark", 0) < quality_only["sqlite benchmark"]
+    assert quality_with_original.get("sqlite benchmark", 0) == 0
+
+    quality_with_accept = build_discovery_quality_profile([
+        quality_event,
+        {
+            "tweet_id": "q3",
+            "action": "bookmark",
+            "weight": 50.0,
+            "context": {"discovery_query": "sqlite benchmark"},
+        },
+    ])
+    assert quality_with_accept.get("sqlite benchmark", 0) == 0
+
+    # Semantic preference uses the same relative evidence scale but remains bounded.
+    semantic_items = [
+        _candidate(201, id="detail", username="same", category="cat", sub_category="sub"),
+        _candidate(202, id="original", username="same2", category="cat2", sub_category="sub2"),
+        _candidate(203, id="saved", username="same3", category="cat3", sub_category="sub3"),
+        _candidate(204, id="dislike", username="same4", category="cat4", sub_category="sub4"),
+    ]
+    semantic_events = [
+        {"tweet_id": "detail", "action": "open_detail", "weight": 1.0},
+        {"tweet_id": "original", "action": "open_original", "weight": 10.0},
+        {"tweet_id": "saved", "action": "bookmark", "weight": 50.0},
+        {"tweet_id": "dislike", "action": "not_interested", "weight": -50.0},
+    ]
+    _, semantic_profile = apply_preference_profile(semantic_items, semantic_events)
+    assert 0 < semantic_profile["category"]["cat"] < semantic_profile["category"]["cat2"] < semantic_profile["category"]["cat3"]
+    assert semantic_profile["category"]["cat4"] < 0
 
     print("discovery acceptance checks: OK")
 
