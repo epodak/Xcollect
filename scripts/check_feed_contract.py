@@ -23,6 +23,7 @@ assert "function updateVisibleCountBadge()" in app
 
 # False-positive × is separate from semantic dislike.
 assert "rejectDiscoveryCandidate" in app
+assert 'recordTweetFeedback(tweetId, "reject_candidate"' in app
 assert 'feedback_scope: "discovery_quality"' in app
 assert "card-reject-candidate" in render
 assert "不会降低你对该话题的兴趣" in render
@@ -37,6 +38,7 @@ assert "'saved_pending'" in discovery
 
 # Manual reject is terminal and reply leakage is gated before expensive AI.
 assert '"reject_candidate": "rejected"' in entry
+assert 'action == "reject_candidate"' in discovery
 assert 'if item.get("is_reply")' in discovery
 assert '"reply"' in discovery
 assert "'rejected'" in discovery
