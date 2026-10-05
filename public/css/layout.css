@@ -688,9 +688,16 @@ html, body {
       }
 
       .mobile-filter-btn {
-        flex-shrink: 0;
-        padding: 0.32rem 0.65rem;
-        font-size: 0.76rem;
+        flex: 0 0 2rem;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        border-radius: 9999px;
+      }
+
+      .mobile-filter-btn .btn-icon {
+        width: 0.95rem;
+        height: 0.95rem;
       }
 
       .view-mode-btns {
@@ -806,5 +813,13 @@ html, body {
       .btn-action {
         padding: 0.32rem 0.5rem;
         font-size: 0.72rem;
+      }
+    }
+
+
+    @media (max-width: 480px) {
+      /* 手机端强制单列；筛选入口已并入排序行，不再保留空的控制行。 */
+      .control-actions-wrap {
+        display: none !important;
       }
     }
