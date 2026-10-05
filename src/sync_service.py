@@ -23,6 +23,7 @@ from storage import (
     save_sync_status,
     save_tweets,
 )
+from discovery import reconcile_candidate_promotions
 
 
 def _utc_now_iso():
@@ -157,6 +158,11 @@ async def perform_cloud_sync(env, trigger: str = "manual", force_reconcile: bool
         )
         return 500, payload
 
+    # Discovery -> Bookmark promotion is complete only after the durable
+    # bookmark repository can read the ID back. Pending promotions are reconciled
+    # here on every successful bookmark sync, including the targeted sync after a save.
+    promoted_candidates = await reconcile_candidate_promotions(env)
+
     reconciliation = {
         "requested": full_scan,
         "complete": False,
@@ -243,6 +249,7 @@ async def perform_cloud_sync(env, trigger: str = "manual", force_reconcile: bool
         "message": f"X 拉取 {len(pulled)} 条；{storage_msg}{reconcile_suffix}",
         "pulled_count": len(pulled),
         "new_count": fetch_meta.get("discovered_new_count", storage_meta.get("d1_written", 0)),
+        "promoted_candidates": promoted_candidates,
         "removed_count": removed_count,
         "reconciliation": reconciliation,
         "fetch": fetch_meta,
