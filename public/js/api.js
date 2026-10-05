@@ -195,7 +195,11 @@ window.recordTweetFeedback = function(tweetId, action, context = {}) {
     category: item ? (item.category || "") : "",
     sub_category: item ? (item.sub_category || "") : "",
     username: item ? (item.username || "") : "",
-    author: item ? (item.author || "") : ""
+    author: item ? (item.author || "") : "",
+    discovery_query: item ? (item.discovery_query || "") : "",
+    discovery_source: item ? (item.discovery_source || "") : "",
+    is_reply: item ? Boolean(item.is_reply) : false,
+    reply_to_username: item ? (item.reply_to_username || "") : ""
   }, context || {});
 
   api.recordFeedback(tweetId, action, mergedContext).catch(() => {
