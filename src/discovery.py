@@ -310,7 +310,6 @@ def build_discovery_quality_profile(events: list[dict]) -> dict:
     beta = max(0.001, float(CONFIG.learning_query_reject_prior_beta))
     prior_mean = alpha / (alpha + beta)
     cap = max(0.0, float(CONFIG.learning_query_penalty_cap))
-    scale = max(0.001, float(CONFIG.learning_query_evidence_scale))
 
     out = {}
     for query, row in per_query.items():
@@ -320,9 +319,11 @@ def build_discovery_quality_profile(events: list[dict]) -> dict:
         if evidence <= 0:
             continue
         posterior = (rejects + alpha) / (evidence + alpha + beta)
+        # The Beta prior already supplies small-sample shrinkage. Do not add a
+        # second confidence multiplier: one accepted result must always reduce
+        # the penalty produced by the same reject history.
         excess = max(0.0, posterior - prior_mean) / max(1e-9, 1.0 - prior_mean)
-        confidence = evidence_confidence(evidence, scale)
-        penalty = cap * excess * confidence
+        penalty = cap * excess
         if penalty > 0:
             out[query] = round(penalty, 6)
     return out
