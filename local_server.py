@@ -196,7 +196,12 @@ def append_local_feedback(event_id, tweet_id, action, context=None):
     action = str(action or "").strip()
     if not event_id or not tweet_id:
         return False, "event_id 和 tweet_id 不能为空", {}
-    if action not in CONFIG.feedback_weights:
+
+    if action == "reject_candidate":
+        feedback_weight = float(CONFIG.feedback_weights.get("not_interested", -1.20))
+    elif action in CONFIG.feedback_weights:
+        feedback_weight = float(CONFIG.feedback_weights[action])
+    else:
         return False, f"不支持的 feedback action: {action}", {}
 
     if isinstance(context, dict):
@@ -208,7 +213,7 @@ def append_local_feedback(event_id, tweet_id, action, context=None):
         "event_id": event_id,
         "tweet_id": tweet_id,
         "action": action,
-        "weight": float(CONFIG.feedback_weights[action]),
+        "weight": feedback_weight,
         "context": context_value,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
