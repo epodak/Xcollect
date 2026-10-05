@@ -193,20 +193,60 @@ class AppConfig:
 
         feedback_cfg = parsed.get("feedback", {})
         self.feedback_weights = {
+            "impression": float(feedback_cfg.get("impression_weight", 0.0)),
             "open_detail": float(feedback_cfg.get("open_detail_weight", 1.0)),
-            "copy": float(feedback_cfg.get("copy_weight", 5.0)),
-            "open_original": float(feedback_cfg.get("open_original_weight", 10.0)),
-            "bookmark": float(feedback_cfg.get("bookmark_weight", 50.0)),
-            "unbookmark": float(feedback_cfg.get("unbookmark_weight", -50.0)),
-            "reject_candidate": float(feedback_cfg.get("reject_candidate_weight", -10.0)),
-            "not_interested": float(feedback_cfg.get("not_interested_weight", -50.0)),
-            "hide_author": float(feedback_cfg.get("hide_author_weight", -100.0)),
+            "copy": float(feedback_cfg.get("copy_weight", 1.0)),
+            "open_original": float(feedback_cfg.get("open_original_weight", 1.0)),
+            "bookmark": float(feedback_cfg.get("bookmark_weight", 1.0)),
+            "unbookmark": float(feedback_cfg.get("unbookmark_weight", -1.0)),
+            "reject_candidate": float(feedback_cfg.get("reject_candidate_weight", -1.0)),
+            "not_interested": float(feedback_cfg.get("not_interested_weight", -1.0)),
+            "hide_author": float(feedback_cfg.get("hide_author_weight", -1.0)),
         }
-        self.preference_category_scale = float(feedback_cfg.get("preference_category_scale", 150.0))
-        self.preference_subcategory_scale = float(feedback_cfg.get("preference_subcategory_scale", 100.0))
-        self.preference_author_scale = float(feedback_cfg.get("preference_author_scale", 100.0))
-        self.discovery_quality_scale = float(feedback_cfg.get("discovery_quality_scale", 30.0))
-        self.discovery_quality_penalty_cap = float(feedback_cfg.get("discovery_quality_penalty_cap", 0.10))
+
+        learning_cfg = parsed.get("learning", {})
+        self.learning_positive_action_order = list(
+            learning_cfg.get(
+                "positive_action_order",
+                ["open_detail", "copy", "open_original", "bookmark"],
+            )
+        )
+        self.learning_calibration_half_life_days = float(
+            learning_cfg.get("calibration_half_life_days", 30.0)
+        )
+        self.learning_conversion_prior_success = float(
+            learning_cfg.get("conversion_prior_success", 1.0)
+        )
+        self.learning_conversion_prior_failure = float(
+            learning_cfg.get("conversion_prior_failure", 9.0)
+        )
+        self.learning_min_calibration_samples = int(
+            learning_cfg.get("min_calibration_samples", 20)
+        )
+        self.learning_category_evidence_scale = float(
+            learning_cfg.get("category_evidence_scale", 6.0)
+        )
+        self.learning_subcategory_evidence_scale = float(
+            learning_cfg.get("subcategory_evidence_scale", 4.0)
+        )
+        self.learning_author_evidence_scale = float(
+            learning_cfg.get("author_evidence_scale", 4.0)
+        )
+        self.learning_query_reject_prior_alpha = float(
+            learning_cfg.get("query_reject_prior_alpha", 1.0)
+        )
+        self.learning_query_reject_prior_beta = float(
+            learning_cfg.get("query_reject_prior_beta", 4.0)
+        )
+        self.learning_query_evidence_scale = float(
+            learning_cfg.get("query_evidence_scale", 5.0)
+        )
+        self.learning_query_penalty_cap = float(
+            learning_cfg.get("query_penalty_cap", 0.10)
+        )
+        self.learning_exploration_ratio = float(
+            learning_cfg.get("exploration_ratio", 0.08)
+        )
 
         # 拓扑重整化 (严格来自 config.toml 单一真源)
         topology_cfg = parsed.get("topology", {})
