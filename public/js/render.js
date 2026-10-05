@@ -288,7 +288,13 @@ function generateTweetCardHtml(item, idx = 0) {
                 : `<span class="author-avatar-fallback">${(item.author || item.username || "?").charAt(0).toUpperCase()}</span>`}
             </div>
             <div class="author-meta">
-              <div class="author-name" title="${escapeHtml(item.author || item.username)}">${escapeHtml(item.author || item.username)}</div>
+              <div class="author-name-row">
+                <div class="author-name" title="${escapeHtml(item.author || item.username)}">${escapeHtml(item.author || item.username)}</div>
+                <div class="author-metrics-inline" aria-label="互动数据">
+                  <span title="喜欢">❤️ ${formatNumber(item.likes)}</span>
+                  <span title="热度">👀 ${formatNumber(item.views)}</span>
+                </div>
+              </div>
               <div class="author-handle">@${escapeHtml(item.username || "anon")}${item.created_at ? " · " + formatDate(item.created_at) : ""}</div>
             </div>
           </div>
@@ -308,11 +314,6 @@ function generateTweetCardHtml(item, idx = 0) {
       </div>
 
       <div class="card-footer">
-        <div class="card-metrics">
-          <span class="metric-item" title="点赞量">❤️ ${formatNumber(item.likes)}</span>
-          <span class="metric-item" title="浏览量">👀 ${formatNumber(item.views)}</span>
-        </div>
-
         <div class="card-buttons">
           <button type="button" class="btn-action btn-copy" onclick="event.stopPropagation(); copyTweetMarkdown('${tweetId}', this)" title="复制完整推文为 Markdown 到剪贴板" aria-label="复制推文 Markdown">
             <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
