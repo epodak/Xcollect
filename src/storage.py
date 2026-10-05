@@ -15,6 +15,7 @@ from config_loader import CONFIG
 from classifier import rule_classify_tweet, get_existing_categories, ai_classify_tweet
 from ranking import enrich_related_hot_many
 from preferences import apply_preference_profile
+from learning import load_action_learning_stats, update_action_calibration
 
 try:
     from js import Response, Headers, Object as JsObject
@@ -164,7 +165,8 @@ async def _load_feedback_events(env) -> list[dict]:
 
 async def _apply_preferences(env, items: list[dict]) -> tuple[list[dict], dict]:
     events = await _load_feedback_events(env)
-    return apply_preference_profile(items, events)
+    action_stats = await load_action_learning_stats(env) if hasattr(env, "DB") else {}
+    return apply_preference_profile(items, events, action_stats=action_stats)
 
 
 async def get_known_tweet_ids(env) -> set[str]:
@@ -375,6 +377,15 @@ async def record_feedback_event(
                 "event_id TEXT PRIMARY KEY, tweet_id TEXT NOT NULL, action TEXT NOT NULL, "
                 "weight REAL NOT NULL, context TEXT, created_at TEXT NOT NULL)"
             ).run()
+
+            # Calibration counts one opportunity per (tweet, action), regardless
+            # of repeated clicks or retry events.
+            existing = await env.DB.prepare(
+                "SELECT 1 AS found FROM feedback_events "
+                "WHERE tweet_id = ? AND action = ? LIMIT 1"
+            ).bind(tweet_id, action).all()
+            first_action = not bool(existing.results)
+
             await env.DB.prepare(
                 "INSERT OR IGNORE INTO feedback_events "
                 "(event_id, tweet_id, action, weight, context, created_at) VALUES (?, ?, ?, ?, ?, ?)"
@@ -386,6 +397,16 @@ async def record_feedback_event(
                 payload["context"],
                 payload["created_at"],
             ).run()
+
+            # Aggregate sufficient statistics contain no tweet text or IDs.
+            # They survive raw Discovery-event TTL with exponential decay.
+            await update_action_calibration(
+                env,
+                tweet_id=tweet_id,
+                action=action,
+                first_action=first_action,
+            )
+
             invalidate_cache()
             return True, "feedback recorded", payload
         except Exception as err:
