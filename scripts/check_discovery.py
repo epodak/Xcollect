@@ -13,9 +13,11 @@ from src.config_loader import CONFIG
 from src.discovery import (
     cheap_gate_candidate,
     diversity_select,
+    build_discovery_quality_profile,
     _parse_judge_array,
     _post_judge_rejection_reason,
 )
+from src.preferences import apply_preference_profile
 from src.twitter import normalize_tweet_result
 
 
@@ -132,6 +134,57 @@ def main():
     assert normalized["likes"] == 123
     assert normalized["views"] == 4567
     assert normalized["category"] == "02_技术架构与开发"
+    assert normalized["is_reply"] is False
+
+    reply_fixture = dict(fixture)
+    reply_fixture["rest_id"] = "1234567891"
+    reply_fixture["legacy"] = dict(fixture["legacy"])
+    reply_fixture["legacy"]["in_reply_to_status_id_str"] = "999"
+    reply_fixture["legacy"]["in_reply_to_screen_name"] = "dhh"
+    reply = normalize_tweet_result(
+        reply_fixture,
+        category_hint="02_技术架构与开发",
+        sub_category_hint="数据库与存储架构",
+    )
+    assert reply["is_reply"] is True
+    assert reply["reply_to_username"] == "dhh"
+    ok, reason, _ = cheap_gate_candidate(reply)
+    assert not ok and reason == "reply"
+
+    # False-positive × feedback must not become topic dislike.
+    quality_event = {
+        "tweet_id": "q1",
+        "action": "not_interested",
+        "weight": -1.2,
+        "context": {
+            "feedback_scope": "discovery_quality",
+            "discovery_query": "sqlite benchmark",
+            "category": "02_技术架构与开发",
+            "sub_category": "数据库与存储架构",
+            "username": "good_author",
+        },
+    }
+    preferred, profile = apply_preference_profile(
+        [_candidate("q1", category="02_技术架构与开发", sub_category="数据库与存储架构", username="good_author")],
+        [quality_event],
+    )
+    assert preferred[0]["preference_boost"] == 0
+    assert not profile["category"]
+    assert not profile["subcategory"]
+    assert not profile["author"]
+
+    quality_only = build_discovery_quality_profile([quality_event])
+    assert quality_only["sqlite benchmark"] > 0
+    quality_with_accept = build_discovery_quality_profile([
+        quality_event,
+        {
+            "tweet_id": "q2",
+            "action": "bookmark",
+            "weight": 1.0,
+            "context": {"discovery_query": "sqlite benchmark"},
+        },
+    ])
+    assert 0 <= quality_with_accept.get("sqlite benchmark", 0) < quality_only["sqlite benchmark"]
 
     print("discovery acceptance checks: OK")
 
