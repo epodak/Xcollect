@@ -8,6 +8,8 @@ preference field from those events and never mutates the evidence.
 import json
 import math
 
+from config_loader import CONFIG
+
 
 def _key(value) -> str:
     return str(value or "").strip()
@@ -93,9 +95,21 @@ def build_preference_profile(items: list[dict], events: list[dict]) -> dict:
             author_raw[author] = author_raw.get(author, 0.0) + weight
 
     return {
-        "category": {key: _squash(value, 4.0) for key, value in category_raw.items()},
-        "subcategory": {key: _squash(value, 3.0) for key, value in subcategory_raw.items()},
-        "author": {key: _squash(value, 3.0) for key, value in author_raw.items()},
+        # Raw behavioral utility preserves the user's intended action hierarchy
+        # (+1/+10/+50 and -50-class negatives). Only after aggregation do we
+        # squash it into a bounded preference field.
+        "category": {
+            key: _squash(value, CONFIG.preference_category_scale)
+            for key, value in category_raw.items()
+        },
+        "subcategory": {
+            key: _squash(value, CONFIG.preference_subcategory_scale)
+            for key, value in subcategory_raw.items()
+        },
+        "author": {
+            key: _squash(value, CONFIG.preference_author_scale)
+            for key, value in author_raw.items()
+        },
         "evidence_pairs": len(distinct),
     }
 
