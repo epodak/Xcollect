@@ -428,6 +428,14 @@ def normalize_tweet_result(
         "created_at": legacy.get("created_at", ""),
         "lang": legacy.get("lang", ""),
         "possibly_sensitive": bool(legacy.get("possibly_sensitive", False)),
+        # SearchTimeline 偶尔会漏过 -filter:replies；把 reply 关系显式标准化，
+        # Discovery cheap gate 才能在源端查询失真时继续守住“候选必须可独立阅读”的边界。
+        "is_reply": bool(
+            legacy.get("in_reply_to_status_id_str")
+            or legacy.get("in_reply_to_user_id_str")
+            or legacy.get("in_reply_to_screen_name")
+        ),
+        "reply_to_username": str(legacy.get("in_reply_to_screen_name", "") or ""),
         "has_media": bool(images or videos),
         "media_type": "video" if videos else ("image" if images else ""),
         "images": images,
