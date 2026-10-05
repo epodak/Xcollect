@@ -245,7 +245,7 @@ def build_discovery_quality_profile(events: list[dict]) -> dict:
         # False-positive reject is explicitly scoped to discovery quality.
         # Positive acceptance signals may use normal preference scope; their
         # provenance still offsets a noisy query without changing topic taste.
-        if action == "not_interested" and scope == "discovery_quality":
+        if action == "reject_candidate" or (action == "not_interested" and scope == "discovery_quality"):
             raw_by_query[query] = raw_by_query.get(query, 0.0) + 1.0
         elif action == "bookmark":
             raw_by_query[query] = raw_by_query.get(query, 0.0) - 0.50
