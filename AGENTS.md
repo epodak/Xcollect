@@ -58,11 +58,13 @@
    - Bookmarks are durable user-owned knowledge assets; discovery candidates are ephemeral external observations.
    - Never silently insert a recommendation into the bookmark knowledge base.
    - The frontend may project `related_hot_score`, but recommendation intelligence belongs in backend ranking/enrichment.
-   - `feedback_events` is append-only training evidence. Aggregated preferences may be rebuilt from events; raw events are not mutated into hidden state.
-   - Discovery jobs must be resumable/idempotent and should apply cheap spam/promo/NSFW gates before expensive AI inference.
+   - `feedback_events` is append-only within its retention window: raw events are never rewritten into hidden state, but stale Discovery-only events must be physically garbage-collected with their expired candidate. Durable Bookmark evidence is exempt.
+   - Discovery freshness is a rolling UTC source-time invariant, not a calendar-day bucket. Any non-durable candidate whose source post is >= 24h old must be absent from the feed and physically deleted together with its ephemeral feedback evidence.
+   - Discovery jobs must be resumable/idempotent and should apply freshness/reply/spam/promo/NSFW gates before expensive AI inference.
    - Search/Discovery source failure must never corrupt or delete bookmark-plane data; the two Cron jobs may report a composite failure but execute independently.
    - A discovery candidate may enter `tweets` only through an explicit bookmark/save action followed by bookmark synchronization.
    - Promotion is two-phase: explicit save -> `saved_pending` -> bookmark sync/read-back -> `saved`. UI must not count `saved_pending` as a durable bookmark.
+   - Behavioral utility is relative evidence, not direct ranking points: title/detail open ≈ +1, open original ≈ +10, bookmark ≈ +50, false-positive `×` ≈ -10 in Discovery-quality space only, and “不想看这类” ≈ -50 in semantic preference space. Aggregate first, then squash into bounded fields.
    - Discovery rejection has two orthogonal meanings:
      - card-corner `×` = false positive / wrong candidate; remove it from Discovery without lowering topic/author preference, while feeding Discovery quality learning;
      - “不想看这类” = semantic preference feedback; lower similar topic/author recommendations.
