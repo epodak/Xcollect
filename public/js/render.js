@@ -228,8 +228,11 @@ async function copyTweetMarkdown(tweetId, button = null) {
  */
 function generateTweetCardHtml(item, idx = 0) {
   const tweetId = item.id;
-  const isDiscovery = item.source_kind === "discovery" && item.is_bookmark !== true && item.discovery_state !== "saved";
-  const isSavedOnX = !isDiscovery && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
+  const discoveryState = String(item.discovery_state || "");
+  const isDiscovery = item.source_kind === "discovery"
+    && item.is_bookmark !== true
+    && !["saved", "saved_pending", "hidden", "rejected"].includes(discoveryState);
+  const isSavedOnX = !isDiscovery && discoveryState !== "saved_pending" && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const rawSubcat = (item.sub_category || "").trim();
   const displaySubcat = (rawSubcat.includes("/") ? rawSubcat.split("/").pop().trim() : rawSubcat) || (item.category || "").replace(/^\d+_/, "");
   const isBadgeActive = (window.activeSubCategory !== "ALL" && (window.activeSubCategory === rawSubcat || window.activeSubCategory === displaySubcat));
@@ -277,7 +280,10 @@ function generateTweetCardHtml(item, idx = 0) {
   }
 
   return `
-    <div class="tweet-card ${hasMedia ? 'has-media' : 'is-text-only'}" data-key="${tweetId}" style="animation-delay: ${Math.min((idx % 18) * 30, 300)}ms;">
+    <div class="tweet-card ${hasMedia ? 'has-media' : 'is-text-only'} ${isDiscovery ? 'is-discovery' : ''}" data-key="${tweetId}" style="animation-delay: ${Math.min((idx % 18) * 30, 300)}ms;">
+      ${isDiscovery ? `
+        <button type="button" class="card-reject-candidate" onclick="event.stopPropagation(); rejectDiscoveryCandidate('${tweetId}')" title="剔除误抓：这条不该进入发现流，但不会降低你对该话题的兴趣" aria-label="剔除误抓候选">×</button>
+      ` : ""}
       <div class="card-main">
         <div class="card-top">
           <div class="author-info">
@@ -325,7 +331,7 @@ function generateTweetCardHtml(item, idx = 0) {
           <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="event.stopPropagation(); toggleXBookmark('${tweetId}')" title="${isDiscovery ? '收藏这条发现内容到 X' : (isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏')}">
             <span>${isSavedOnX ? '★ 移出' : '☆ 收藏'}</span>
           </button>
-          ${isDiscovery ? `<button type="button" class="btn-action btn-dismiss" onclick="event.stopPropagation(); dismissDiscovery('${tweetId}')" title="不再展示这条发现内容，并作为负反馈训练推荐"><span>× 不感兴趣</span></button>` : ""}
+          ${isDiscovery ? `<button type="button" class="btn-action btn-dismiss" onclick="event.stopPropagation(); dismissDiscovery('${tweetId}')" title="不想看这类内容：会降低相似话题/作者的后续推荐权重"><span>⊘ 不想看这类</span></button>` : ""}
           <a class="btn-action btn-twitter" href="${item.url || 'https://x.com'}" target="_blank" rel="noopener noreferrer" onclick="if(window.recordTweetFeedback){window.recordTweetFeedback('${tweetId}', 'open_original', {surface:'feed'});}" title="前往 Twitter 页面查看或管理原推">
             <span>𝕏 原推 ↗</span>
           </a>
@@ -434,10 +440,21 @@ function renderSentinel(container, hasMore, currentCount, totalCount) {
 function updateModalBookmarkBtn() {
   if (!window.currentOpenTweet) return;
   const tweetId = window.currentOpenTweet.id;
-  const isDiscovery = window.currentOpenTweet.source_kind === "discovery" && window.currentOpenTweet.is_bookmark !== true && window.currentOpenTweet.discovery_state !== "saved";
-  const isSaved = !isDiscovery && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
+  const state = String(window.currentOpenTweet.discovery_state || "");
+  const isPending = state === "saved_pending";
+  const isDiscovery = window.currentOpenTweet.source_kind === "discovery"
+    && window.currentOpenTweet.is_bookmark !== true
+    && !["saved", "saved_pending", "hidden", "rejected"].includes(state);
+  const isSaved = !isDiscovery && !isPending && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const btn = document.getElementById("modalToggleBookmark");
   if (btn) {
+    if (isPending) {
+      btn.className = "btn-action btn-bookmark unbookmarked";
+      btn.disabled = true;
+      btn.innerHTML = "<span>⏳ 已收藏，等待书签同步确认</span>";
+      return;
+    }
+    btn.disabled = false;
     btn.className = `btn-action btn-bookmark ${isSaved ? 'saved' : 'unbookmarked'}`;
     btn.innerHTML = `<span>${isSaved ? '★ 从 𝕏 云端移出书签' : (isDiscovery ? '☆ 收藏到 𝕏' : '☆ 恢复添加到 𝕏 书签')}</span>`;
   }
