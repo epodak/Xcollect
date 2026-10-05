@@ -68,5 +68,7 @@
      - “不想看这类” = semantic preference feedback; lower similar topic/author recommendations.
    - Source-query intent is enforced again after ingestion: replies that leak through X SearchTimeline despite `-filter:replies` are rejected by the cheap gate.
    - Daily selection must optimize diversity, not plain Top-K popularity.
-   - See `docs/engineering/DISCOVERY_ENGINE.md`.
+   - Architecture/rationale: `docs/engineering/DISCOVERY_ENGINE.md`.
+   - Operational change procedure: `.agents/skills/discovery-plane/SKILL.md`.
+   - Executable contracts: `scripts/check_discovery.py`, `scripts/check_feed_contract.py`, `scripts/check_related_hot.py`.
 
