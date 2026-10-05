@@ -13,11 +13,26 @@ Bookmark Plane
 Discovery Plane
 = things the system found for the user
 = ephemeral candidate stream
+= rolling UTC source-time window, not a calendar-day archive
 = may be rejected, ranked, shown, ignored or promoted into bookmarks
 ```
 
 A discovery recommendation is **not** a bookmark. The two objects must never be
 silently merged.
+
+The freshness invariant is hard:
+
+```text
+source_post_age < 24h UTC  -> eligible Discovery observation
+source_post_age >= 24h UTC -> absent from feed + physically garbage-collected
+```
+
+For an unpromoted Discovery item, expiration removes the candidate, materialized
+feed row and its ephemeral feedback events. Reading it, opening the original, or
+ignoring it does not turn Discovery into a permanent history database. An
+explicit bookmark promotion changes the object into the durable Bookmark Plane;
+that durable object and its bookmark-derived evidence are exempt from Discovery
+TTL.
 
 ## Related-hot ranking
 
@@ -90,18 +105,21 @@ bookmarks. Discovery ingestion may later use a hard rejection threshold.
 
 Current actions already produce preference signals:
 
-| action | default reward |
-| --- | ---: |
-| open_detail | +0.15 |
-| copy | +0.80 |
-| open_original | +0.30 |
-| bookmark | +1.00 |
-| unbookmark | -1.00 |
-| reject_candidate | uses the configured negative magnitude, but is routed only to Discovery-quality learning |
-| not_interested | -1.20 |
-| hide_author | -2.00 |
+| action | behavioral utility | learning projection |
+| --- | ---: | --- |
+| open_detail | +1 | semantic preference + query acceptance |
+| copy | +5 | semantic preference + query acceptance |
+| open_original | +10 | semantic preference + query acceptance |
+| bookmark | +50 | strong semantic preference + query acceptance |
+| unbookmark | -50 | cancels prior bookmark evidence; not equivalent to “不想看这类” |
+| reject_candidate | -10 | Discovery-quality only |
+| not_interested | -50 | semantic preference only |
+| hide_author | -100 | explicit author-level semantic rejection |
 
-The values are configuration, not hard-coded product truth.
+The values are configuration, not hard-coded product truth. They are **relative
+evidence units**, not direct ranking points. The learner first aggregates them,
+then applies bounded `tanh` transforms. This preserves the intended hierarchy
+(+1 << +10 << +50) without letting one bookmark permanently saturate the feed.
 
 The important invariant is:
 
@@ -118,16 +136,25 @@ next feed
 ```
 
 Raw events are never rewritten into a single mutable "preference" field.
-Aggregated preference models must be reproducible from the event log.
+Aggregated preference models must be reproducible from the retained event log.
+
+“Append-only” here means immutable during the retention window, not eternal
+storage. Discovery-only evidence is physically deleted when its unpromoted
+candidate expires at 24h source age. This deliberately makes short-lived
+Discovery learning forget stale attention. Durable Bookmark evidence remains
+available because the object has left the ephemeral Discovery Plane.
 
 The first online trainer is deliberately small and bounded:
 
 - repeated `(tweet, action)` pairs are deduplicated for learning;
-- reward is aggregated into category, sub-category and author signals;
-- signals are squashed with `tanh`;
+- raw behavioral utility is aggregated into category, sub-category and author fields;
+- category/sub-category/author fields use separate configurable `tanh` scales;
 - the combined correction is bounded to approximately `[-0.22, +0.22]`;
 - the correction modifies semantic relevance rather than replacing quality,
-  freshness or velocity.
+  freshness or velocity;
+- query-quality uses a separate bounded field: false-positive × contributes -10,
+  while detail/original/bookmark evidence can offset a noisy query;
+- semantic “不想看这类” never punishes the discovery query itself.
 
 This means a few actions can steer the feed, but cannot immediately collapse it
 into an echo chamber.
@@ -174,12 +201,14 @@ Likewise, `saved_pending` is not a bookmark. It only means X accepted the save r
 
 ### daily_feed
 
-A materialized attention budget for one date.
+A materialized attention budget / snapshot. The historical table name remains
+for compatibility, but `feed_date` is only a partition key. Eligibility is
+defined by rolling source-post age, not by “same UTC calendar day”.
 
 It stores the chosen order only. It does not imply permanent storage or a user
 bookmark.
 
-## Daily discovery pipeline
+## Rolling discovery pipeline
 
 Target architecture:
 
@@ -241,6 +270,9 @@ The live Discovery Plane now includes:
 - GET/POST transport fallback so X Web build changes do not silently couple the
   product to one request shape;
 - candidate acquisition that remains independent from bookmark synchronization;
+- hard rejection for source posts outside the rolling 24h UTC window before AI inference;
+- scheduler-tick garbage collection that physically deletes stale Discovery candidates, feed rows and non-durable feedback evidence;
+- strict read-side freshness filtering so an expired item cannot remain visible while waiting for the next GC tick;
 - hard rejection for sensitive / extremely short / obvious promo-spam content;
 - reply provenance normalization plus a cheap-gate reply guard, so SearchTimeline leakage cannot bypass query intent such as `-filter:replies`;
 - a distinct false-positive rejection path whose feedback is kept out of topic preference and instead contributes a bounded query-quality penalty;
