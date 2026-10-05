@@ -687,17 +687,23 @@ async def persist_judgements(env, items: list[dict]) -> int:
     return len(normalized)
 
 
-async def _today_rankable_rows(env) -> list[dict]:
+async def _active_rankable_rows(env) -> list[dict]:
     res = await env.DB.prepare(
         "SELECT * FROM discovery_candidates "
-        "WHERE discovery_date = ? "
-        "AND state NOT IN ('hidden', 'rejected', 'saved_pending', 'saved') "
+        "WHERE state NOT IN ('hidden', 'rejected', 'saved_pending', 'saved') "
         "AND final_score IS NOT NULL "
         "ORDER BY final_score DESC LIMIT 2000"
-    ).bind(_today()).all()
+    ).all()
 
+    now = datetime.now(timezone.utc)
     rows = []
     for row in res.results:
+        if not _within_retention(
+            _row_get(row, "created_at", ""),
+            _row_get(row, "first_seen_at", ""),
+            now=now,
+        ):
+            continue
         payload = _json_obj(_row_get(row, "payload_json", "{}"))
         state = str(_row_get(row, "state", "") or "")
         payload.update({
@@ -770,10 +776,12 @@ def diversity_select(rows: list[dict], limit: int | None = None) -> list[dict]:
 
 
 async def materialize_daily_feed(env) -> tuple[int, list[dict]]:
-    rows = await _today_rankable_rows(env)
+    rows = await _active_rankable_rows(env)
     selected = diversity_select(rows, CONFIG.discovery_daily_limit)
     today = _today()
 
+    # Calendar date is only a materialization partition. Freshness is rolling.
+    await env.DB.prepare("DELETE FROM daily_feed WHERE feed_date <> ?").bind(today).run()
     await env.DB.prepare("DELETE FROM daily_feed WHERE feed_date = ?").bind(today).run()
 
     if selected:
@@ -809,8 +817,8 @@ async def materialize_daily_feed(env) -> tuple[int, list[dict]]:
 
         await env.DB.prepare(
             "UPDATE discovery_candidates SET state = 'judged' "
-            "WHERE discovery_date = ? AND state = 'selected'"
-        ).bind(today).run()
+            "WHERE state = 'selected'"
+        ).run()
 
         ids = [str(item.get("id", "")) for item in selected if item.get("id")]
         if ids:
