@@ -31,15 +31,45 @@ function saveUnbookmarked() {
 
 // 核心数据流视角: "discovery" (相关热点发现) | "bookmarks" (我的书签知识库) | "all" (全部)
 var activeFeedScope = "discovery";
+var currentScopeTotal = 0;
+
+const DISCOVERY_EXIT_STATES = new Set(["saved", "saved_pending", "hidden", "rejected"]);
+
+function isUnsavedDiscoveryItem(item) {
+  return Boolean(
+    item &&
+    item.source_kind === "discovery" &&
+    item.is_bookmark !== true &&
+    !DISCOVERY_EXIT_STATES.has(String(item.discovery_state || ""))
+  );
+}
+
+function isCurrentBookmarkItem(item) {
+  if (!item) return false;
+  const durableBookmark =
+    item.is_bookmark === true ||
+    item.source_kind === "bookmark" ||
+    item.discovery_state === "saved";
+  return durableBookmark && !unbookmarkedIds.has(String(item.id));
+}
+
+function updateVisibleCountBadge() {
+  const visibleBadge = document.getElementById("visibleCountBadge");
+  if (!visibleBadge) return;
+  let scopeLabel = "篇";
+  if (activeFeedScope === "discovery") scopeLabel = "篇 · 相关热点发现";
+  else if (activeFeedScope === "bookmarks") scopeLabel = "篇 · 我的书签";
+  else scopeLabel = "篇 · 全部汇总";
+  visibleBadge.textContent = `显示 ${currentFilteredList.length} / ${currentScopeTotal} ${scopeLabel}`;
+}
 
 function updateFeedScopeCounts() {
   let discoveryCount = 0;
   let bookmarksCount = 0;
   (tweets || []).forEach(item => {
-    const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
-    if (isSaved && !unbookmarkedIds.has(item.id)) {
+    if (isCurrentBookmarkItem(item)) {
       bookmarksCount++;
-    } else if (item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden") {
+    } else if (isUnsavedDiscoveryItem(item)) {
       discoveryCount++;
     }
   });
@@ -301,9 +331,8 @@ async function initApp() {
 
 function renderCategories() {
       const scopeItems = (tweets || []).filter(item => {
-        const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
-        const isCurrentlyBookmarked = isSaved && !unbookmarkedIds.has(item.id);
-        const isUnsavedDiscovery = item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden";
+        const isCurrentlyBookmarked = isCurrentBookmarkItem(item);
+        const isUnsavedDiscovery = isUnsavedDiscoveryItem(item);
         if (activeFeedScope === "discovery") return isUnsavedDiscovery;
         if (activeFeedScope === "bookmarks") return isCurrentlyBookmarked;
         return (isUnsavedDiscovery || isCurrentlyBookmarked);
@@ -844,9 +873,8 @@ function setupEventListeners() {
 function applyFiltersAndRender(resetScroll = true) {
   let activeScopeTotal = 0;
   (tweets || []).forEach(item => {
-    const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
-    const isCurrentlyBookmarked = isSaved && !unbookmarkedIds.has(item.id);
-    const isUnsavedDiscovery = item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden";
+    const isCurrentlyBookmarked = isCurrentBookmarkItem(item);
+    const isUnsavedDiscovery = isUnsavedDiscoveryItem(item);
     if (activeFeedScope === "discovery") {
       if (isUnsavedDiscovery) activeScopeTotal++;
     } else if (activeFeedScope === "bookmarks") {
@@ -855,12 +883,12 @@ function applyFiltersAndRender(resetScroll = true) {
       if (isUnsavedDiscovery || isCurrentlyBookmarked) activeScopeTotal++;
     }
   });
+  currentScopeTotal = activeScopeTotal;
 
   currentFilteredList = tweets.filter(item => {
     const tweetId = item.id;
-    const isSaved = item.is_bookmark === true || item.source_kind !== "discovery" || item.discovery_state === "saved";
-    const isCurrentlyBookmarkedOnX = isSaved && !unbookmarkedIds.has(tweetId);
-    const isUnsavedDiscovery = item.source_kind === "discovery" && !item.is_bookmark && item.discovery_state !== "saved" && item.discovery_state !== "hidden";
+    const isCurrentlyBookmarkedOnX = isCurrentBookmarkItem(item);
+    const isUnsavedDiscovery = isUnsavedDiscoveryItem(item);
 
     // 1. 数据流视角隔离
     if (activeFeedScope === "discovery") {
@@ -870,8 +898,8 @@ function applyFiltersAndRender(resetScroll = true) {
       // 我的书签：仅看个人书签知识库，剔除未采纳的外部临时候选！
       if (!isCurrentlyBookmarkedOnX) return false;
     } else {
-      // 全部视角：排除已从 X 移除且非发现的内容，以及已隐藏的发现
-      if (item.discovery_state === "hidden") return false;
+      // “全部”只是两个有效平面的投影：Durable Bookmark ∪ Active Discovery。
+      // hidden / rejected / saved_pending 等过渡或终止状态不属于第三个隐形平面。
       if (!isUnsavedDiscovery && !isCurrentlyBookmarkedOnX) return false;
     }
 
@@ -927,15 +955,8 @@ function applyFiltersAndRender(resetScroll = true) {
     return 0;
   });
 
-  // 更新总数指示器
-  const visibleBadge = document.getElementById("visibleCountBadge");
-  if (visibleBadge) {
-    let scopeLabel = "篇";
-    if (activeFeedScope === "discovery") scopeLabel = "篇 · 相关热点发现";
-    else if (activeFeedScope === "bookmarks") scopeLabel = "篇 · 我的书签";
-    else scopeLabel = "篇 · 全部汇总";
-    visibleBadge.textContent = `显示 ${currentFilteredList.length} / ${activeScopeTotal} ${scopeLabel}`;
-  }
+  // 计数文案只有一个投影入口；无限滚动只能改变“已渲染多少”，不能改写数据集语义。
+  updateVisibleCountBadge();
 
   const container = document.getElementById("tweetsContainer");
   if (!container) return;
@@ -945,13 +966,13 @@ function applyFiltersAndRender(resetScroll = true) {
       sentinelObserver.disconnect();
       sentinelObserver = null;
     }
-    if (activeFeedScope === "discovery") {
+    if (activeFeedScope === "discovery" && activeScopeTotal === 0) {
       container.innerHTML = `
         <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 4.5rem 1.5rem; background: rgb(var(--c-surface)); border: 1px dashed rgb(var(--c-line)); border-radius: 14px; margin: 1rem 0;">
           <div style="font-size: 2.8rem; margin-bottom: 0.8rem;">🎉</div>
           <div style="font-size: 1.15rem; font-weight: 600; color: rgb(var(--c-fg)); margin-bottom: 0.5rem;">今日相关热点已全部阅毕！</div>
           <div style="font-size: 0.86rem; color: rgb(var(--c-fg-subtle)); max-width: 440px; margin: 0 auto 1.4rem; line-height: 1.6;">
-            当前分类下无待处理候选推荐。可点击右上角「🔥 立即发现」获取新一轮全网热点，或前往「⭐ 我的书签」查阅已收藏知识库。
+            当前发现 Inbox 已无待处理候选。可点击右上角「🔥 立即发现」获取新一轮全网热点，或前往「⭐ 我的书签」查阅已收藏知识库。
           </div>
           <div style="display: flex; gap: 0.75rem; justify-content: center;">
             <button class="btn-action" onclick="setFeedScope('bookmarks')" style="padding: 0.45rem 1.1rem; border-color: rgb(var(--c-brand) / 0.4);">
@@ -1019,12 +1040,6 @@ function setupInfiniteScroll() {
         const stillHasMore = renderedCount < currentFilteredList.length;
         renderSentinel(container, stillHasMore, renderedCount, currentFilteredList.length);
 
-        // 更新计数指示器
-        const visibleBadge = document.getElementById("visibleCountBadge");
-        if (visibleBadge) {
-          visibleBadge.textContent = `显示 ${renderedCount} / ${currentFilteredList.length} (总 ${tweets.length}) 篇`;
-        }
-
         if (!stillHasMore && sentinelObserver) {
           sentinelObserver.disconnect();
           sentinelObserver = null;
@@ -1052,6 +1067,7 @@ window.dismissDiscovery = async function(tweetId) {
 
     recordTweetFeedback(tweetId, "not_interested", {
       surface: "feed",
+      feedback_scope: "preference",
       category: item.category || "",
       sub_category: item.sub_category || "",
       username: item.username || "",
@@ -1074,6 +1090,45 @@ window.dismissDiscovery = async function(tweetId) {
   }
 };
 
+window.rejectDiscoveryCandidate = async function(tweetId) {
+  const item = tweets.find(t => String(t.id) === String(tweetId));
+  if (!isUnsavedDiscoveryItem(item)) return;
+
+  try {
+    const result = await api.discoveryAction(tweetId, "reject_candidate");
+    if (!result.ok || !result.data || !result.data.success) {
+      throw new Error((result.data && (result.data.message || result.data.error)) || "剔除失败");
+    }
+
+    // 复用已配置的负反馈权重，但把 scope 切到 discovery_quality。
+    // preferences.py 会忽略这条证据，因此不会误伤用户对数据库/作者/主题的兴趣。
+    recordTweetFeedback(tweetId, "not_interested", {
+      surface: "feed",
+      feedback_scope: "discovery_quality",
+      reject_reason: "wrong_candidate",
+      discovery_query: item.discovery_query || "",
+      discovery_source: item.discovery_source || "",
+      is_reply: Boolean(item.is_reply),
+      reply_to_username: item.reply_to_username || ""
+    });
+
+    tweets = tweets.filter(t => String(t.id) !== String(tweetId));
+    window.tweets = tweets;
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
+
+    const counts = updateFeedScopeCounts();
+    const brandSub = document.querySelector(".brand-sub");
+    if (brandSub) {
+      brandSub.textContent = `Curated Knowledge Portal · ${counts.bookmarksCount} 篇书签 · ${counts.discoveryCount} 篇发现`;
+    }
+    renderCategories();
+    applyFiltersAndRender(false);
+    showToast("已剔除误抓；不会降低该话题兴趣，后续发现会把它作为质量负反馈");
+  } catch (err) {
+    showToast("无法剔除这条发现内容: " + err, false);
+  }
+};
+
 window.toggleXBookmark = async function(tweetId) {
       if (!isXConfigured) {
         openAuthModal();
@@ -1084,14 +1139,8 @@ window.toggleXBookmark = async function(tweetId) {
       const btn = document.getElementById(`btn-toggle-${tweetId}`);
       if (btn) btn.disabled = true;
       const feedbackItem = tweets.find(t => String(t.id) === String(tweetId));
-      const isDiscoveryCandidate = Boolean(
-        feedbackItem &&
-        feedbackItem.source_kind === "discovery" &&
-        feedbackItem.is_bookmark !== true &&
-        feedbackItem.discovery_state !== "saved"
-      );
-
-      const currentlySaved = !isDiscoveryCandidate && !unbookmarkedIds.has(tweetId);
+      const isDiscoveryCandidate = isUnsavedDiscoveryItem(feedbackItem);
+      const currentlySaved = isCurrentBookmarkItem(feedbackItem);
       const action = currentlySaved ? "delete" : "create";
 
       try {
@@ -1116,17 +1165,30 @@ window.toggleXBookmark = async function(tweetId) {
             showToast(`已成功从 𝕏 云端移出书签并从 D1 数据库移除 #${tweetId}`);
           } else {
             unbookmarkedIds.delete(tweetId);
+            const promotionState = String(result.promotion_state || "saved");
             if (feedbackItem) {
-              feedbackItem.source_kind = "bookmark";
-              feedbackItem.is_bookmark = true;
-              feedbackItem.discovery_state = "saved";
+              if (isDiscoveryCandidate && promotionState === "saved_pending") {
+                // X 已接受收藏，但 Durable Bookmark 还没有被同步回读确认。
+                // 该候选立即离开 Inbox，但不会虚构成“我的书签 +1”。
+                feedbackItem.source_kind = "discovery";
+                feedbackItem.is_bookmark = false;
+                feedbackItem.discovery_state = "saved_pending";
+              } else {
+                feedbackItem.source_kind = "bookmark";
+                feedbackItem.is_bookmark = true;
+                feedbackItem.discovery_state = "saved";
+              }
             }
             try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
-            showToast(
-              isDiscoveryCandidate
-                ? `已将发现内容收藏到 𝕏 #${tweetId}`
-                : `已成功重新添加至 𝕏 云端书签 #${tweetId}`
-            );
+            if (isDiscoveryCandidate && promotionState === "saved_pending") {
+              showToast("已收藏到 𝕏；正在等待书签同步确认，确认后会进入「我的书签」");
+            } else {
+              showToast(
+                isDiscoveryCandidate
+                  ? `已收藏并确认进入「我的书签」 #${tweetId}`
+                  : `已成功重新添加至 𝕏 云端书签 #${tweetId}`
+              );
+            }
           }
           saveUnbookmarked();
           recordTweetFeedback(tweetId, action === "delete" ? "unbookmark" : "bookmark", {
@@ -1174,6 +1236,7 @@ window.openDrawer = openDrawer;
 window.closeDrawer = closeDrawer;
 window.applyFiltersAndRender = applyFiltersAndRender;
 window.setupInfiniteScroll = setupInfiniteScroll;
+window.rejectDiscoveryCandidate = window.rejectDiscoveryCandidate;
 window.sortMode = sortMode;
 window.activeCategory = activeCategory;
 window.activeSubCategory = activeSubCategory;
