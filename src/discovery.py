@@ -7,6 +7,7 @@ diversity-constrained daily feed.
 """
 
 import json
+import math
 from datetime import datetime, timezone, timedelta
 
 from config_loader import CONFIG
@@ -176,6 +177,11 @@ def cheap_gate_candidate(item: dict) -> tuple[bool, str, float]:
     text = str(item.get("body_raw") or item.get("snippet") or "").strip()
     if item.get("possibly_sensitive"):
         return False, "possibly_sensitive", 1.0
+    # 查询端已经普遍带 -filter:replies，但 X SearchTimeline 偶尔仍会返回回复。
+    # 回复可能技术上很相关，却往往依赖上文才能成立；这属于“发现质量”问题，
+    # 不是用户对该技术主题不感兴趣，因此在 cheap gate 单独剔除。
+    if item.get("is_reply"):
+        return False, "reply", 0.0
     if len(text) < int(CONFIG.discovery_min_text_chars):
         return False, "too_short", 0.0
 
@@ -205,6 +211,66 @@ async def _load_feedback_events(env) -> list[dict]:
         return out
     except Exception:
         return []
+
+
+def _feedback_context(event: dict) -> dict:
+    raw = event.get("context") or {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def build_discovery_quality_profile(events: list[dict]) -> dict:
+    """Build a bounded query-level false-positive penalty.
+
+    This field is deliberately orthogonal to topic preference. A user can say
+    “this candidate should never have been discovered” without saying
+    “I dislike databases / this author / this topic”.
+    """
+    raw_by_query = {}
+    for event in events or []:
+        context = _feedback_context(event)
+        if str(context.get("feedback_scope", "") or "") != "discovery_quality":
+            continue
+        query = str(context.get("discovery_query", "") or "").strip()
+        if not query:
+            continue
+
+        action = str(event.get("action", "") or "")
+        # Current false-positive UI records the configured not_interested event
+        # with discovery_quality scope. Positive accepted candidates can offset
+        # query-level penalty when they carry the same provenance.
+        if action == "not_interested":
+            raw_by_query[query] = raw_by_query.get(query, 0.0) + 1.0
+        elif action == "bookmark":
+            raw_by_query[query] = raw_by_query.get(query, 0.0) - 0.50
+        elif action == "copy":
+            raw_by_query[query] = raw_by_query.get(query, 0.0) - 0.20
+
+    # A single false positive should only nudge a query; repeated rejects can
+    # cap the penalty at 0.08 rather than collapsing a useful topic stream.
+    return {
+        query: round(max(0.0, 0.08 * math.tanh(signal / 3.0)), 6)
+        for query, signal in raw_by_query.items()
+        if signal > 0
+    }
+
+
+def _score_with_quality_feedback(item: dict, quality_profile: dict) -> tuple[float, dict]:
+    score, features = compute_related_hot_score(item)
+    query = str(item.get("discovery_query", "") or "")
+    penalty = float((quality_profile or {}).get(query, 0.0) or 0.0)
+    if penalty > 0:
+        score = max(0.0, score - penalty)
+    features = dict(features)
+    features["discovery_quality_penalty"] = round(penalty, 6)
+    return round(score, 6), features
 
 
 async def _known_bookmark_ids(env) -> set[str]:
@@ -301,7 +367,7 @@ async def persist_candidates(env, candidates: list[dict]) -> int:
         penalty_score = excluded.penalty_score,
         payload_json = excluded.payload_json,
         state = CASE
-            WHEN discovery_candidates.state IN ('hidden', 'saved') THEN discovery_candidates.state
+            WHEN discovery_candidates.state IN ('hidden', 'rejected', 'saved_pending', 'saved') THEN discovery_candidates.state
             ELSE 'candidate'
         END
     """
@@ -405,9 +471,10 @@ async def judge_candidates(env, candidates: list[dict]) -> tuple[list[dict], dic
 
     events = await _load_feedback_events(env)
     preferred, preference_profile = apply_preference_profile(candidates, events)
+    quality_profile = build_discovery_quality_profile(events)
 
     for item in preferred:
-        score, features = compute_related_hot_score(item)
+        score, features = _score_with_quality_feedback(item, quality_profile)
         item["related_hot_score"] = score
         item["related_hot_features"] = features
 
@@ -424,6 +491,7 @@ async def judge_candidates(env, candidates: list[dict]) -> tuple[list[dict], dic
             "ai_calls": 0,
             "rejected_count": rejected_count,
             "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
+            "quality_feedback_queries": len(quality_profile),
         }
 
     model_candidates = [CONFIG.discovery_ai_judge_model] + [
@@ -505,7 +573,7 @@ async def judge_candidates(env, candidates: list[dict]) -> tuple[list[dict], dic
             item["ai_reason"] = str(row.get("reason", "") or "")[:240]
             item["ai_model"] = used_model
 
-            final_score, final_features = compute_related_hot_score(item)
+            final_score, final_features = _score_with_quality_feedback(item, quality_profile)
             item["related_hot_score"] = final_score
             item["related_hot_features"] = final_features
             judged_count += 1
@@ -517,6 +585,7 @@ async def judge_candidates(env, candidates: list[dict]) -> tuple[list[dict], dic
         "judged_count": judged_count,
         "rejected_count": rejected_count,
         "preference_evidence_pairs": int(preference_profile.get("evidence_pairs", 0) or 0),
+        "quality_feedback_queries": len(quality_profile),
     }
 
 
@@ -557,7 +626,7 @@ async def persist_judgements(env, items: list[dict]) -> int:
         ai_model = json_extract(j.value, '$.ai_model'),
         rank_version = json_extract(j.value, '$.rank_version'),
         state = CASE
-            WHEN state IN ('hidden', 'saved') THEN state
+            WHEN state IN ('hidden', 'rejected', 'saved_pending', 'saved') THEN state
             ELSE json_extract(j.value, '$.state')
         END
     FROM json_each(?) AS j
@@ -571,7 +640,7 @@ async def _today_rankable_rows(env) -> list[dict]:
     res = await env.DB.prepare(
         "SELECT * FROM discovery_candidates "
         "WHERE discovery_date = ? "
-        "AND state NOT IN ('hidden', 'rejected', 'saved') "
+        "AND state NOT IN ('hidden', 'rejected', 'saved_pending', 'saved') "
         "AND final_score IS NOT NULL "
         "ORDER BY final_score DESC LIMIT 2000"
     ).bind(_today()).all()
@@ -714,7 +783,7 @@ async def get_daily_feed(env, feed_date: str | None = None) -> list[dict]:
         "SELECT d.*, f.rank AS feed_rank, f.final_score AS feed_score "
         "FROM daily_feed f "
         "JOIN discovery_candidates d ON d.tweet_id = f.tweet_id "
-        "WHERE f.feed_date = ? AND d.state NOT IN ('hidden', 'saved') "
+        "WHERE f.feed_date = ? AND d.state NOT IN ('hidden', 'rejected', 'saved_pending', 'saved') "
         "ORDER BY f.rank ASC"
     ).bind(day).all()
 
@@ -749,7 +818,7 @@ async def get_daily_feed(env, feed_date: str | None = None) -> list[dict]:
 
 
 async def set_candidate_state(env, tweet_id: str, state: str) -> tuple[bool, str]:
-    allowed = {"hidden", "saved", "candidate", "judged", "selected"}
+    allowed = {"hidden", "rejected", "saved_pending", "saved", "candidate", "judged", "selected"}
     if state not in allowed:
         return False, f"unsupported state: {state}"
     if not hasattr(env, "DB"):
@@ -762,11 +831,41 @@ async def set_candidate_state(env, tweet_id: str, state: str) -> tuple[bool, str
         "WHERE tweet_id = ?"
     ).bind(state, _now_iso(), str(tweet_id)).run()
 
-    if state in ("hidden", "saved"):
+    if state in ("hidden", "rejected", "saved_pending", "saved"):
         await env.DB.prepare(
             "DELETE FROM daily_feed WHERE tweet_id = ?"
         ).bind(str(tweet_id)).run()
     return True, "candidate state updated"
+
+
+async def reconcile_candidate_promotions(env) -> int:
+    """Promote saved_pending candidates only after the bookmark plane confirms them.
+
+    The tweets table remains the durable bookmark truth. This bridge closes the
+    explicit save -> X -> bookmark sync -> durable knowledge transaction without
+    ever copying an unverified recommendation directly into tweets.
+    """
+    if not hasattr(env, "DB"):
+        return 0
+    await ensure_discovery_schema(env)
+    try:
+        res = await env.DB.prepare(
+            "SELECT COUNT(*) AS total FROM discovery_candidates "
+            "WHERE state = 'saved_pending' AND tweet_id IN (SELECT id FROM tweets)"
+        ).all()
+        total = int(_row_get(res.results[0], "total", 0) or 0) if res.results else 0
+        if total:
+            await env.DB.prepare(
+                "UPDATE discovery_candidates SET state = 'saved', last_seen_at = ? "
+                "WHERE state = 'saved_pending' AND tweet_id IN (SELECT id FROM tweets)"
+            ).bind(_now_iso()).run()
+            await env.DB.prepare(
+                "DELETE FROM daily_feed WHERE tweet_id IN "
+                "(SELECT tweet_id FROM discovery_candidates WHERE state = 'saved')"
+            ).run()
+        return total
+    except Exception:
+        return 0
 
 
 async def get_discovery_status(env) -> dict:
@@ -784,6 +883,7 @@ async def get_discovery_status(env) -> dict:
         "judged": 0,
         "selected": 0,
         "hidden": 0,
+        "saved_pending": 0,
         "saved": 0,
         "rejected": 0,
     }
