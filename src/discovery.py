@@ -1140,6 +1140,9 @@ async def get_discovery_status(env) -> dict:
     except Exception:
         feed_count = 0
 
+    action_stats = await load_action_learning_stats(env)
+    action_utilities = estimate_action_utilities(action_stats)
+
     return {
         "success": True,
         "available": True,
@@ -1151,6 +1154,11 @@ async def get_discovery_status(env) -> dict:
         "query_cursor": await _meta_get(env, "discovery:query_cursor", "0"),
         "states": counts,
         "daily_feed_count": feed_count,
+        "learning": {
+            "action_utilities": action_utilities,
+            "action_stats": action_stats,
+            "exploration_ratio": float(CONFIG.learning_exploration_ratio),
+        },
     }
 
 
