@@ -58,7 +58,7 @@ assert "current_feed_count, _ = await materialize_daily_feed(env)" in discovery
 
 # Manual reject is terminal and reply leakage is gated before expensive AI.
 assert '"reject_candidate": "rejected"' in entry
-assert 'action == "reject_candidate"' in discovery
+assert '"reject_candidate" in actions' in discovery
 assert 'if item.get("is_reply")' in discovery
 assert '"reply"' in discovery
 assert "'rejected'" in discovery
