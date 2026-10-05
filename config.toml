@@ -69,6 +69,9 @@ workers_ai_models = [
 [discovery]
 enabled = true
 interval_hours = 2.0
+# Discovery 是滚动新鲜流，不是跨日知识库。候选以原推 created_at 的 UTC 年龄为准；
+# 超过该窗口的未固化发现及其短期训练证据必须物理清除。
+retention_hours = 24.0
 queries_per_run = 3
 search_count = 60
 max_pages_per_query = 1
@@ -99,14 +102,27 @@ velocity_age_exponent = 0.68
 velocity_scale = 135.0
 
 [feedback]
-# 用户动作作为训练信号的默认 reward。后续学习器只聚合事件，不回写原始事件。
-open_detail_weight = 0.15
-copy_weight = 0.80
-open_original_weight = 0.30
-bookmark_weight = 1.00
-unbookmark_weight = -1.00
-not_interested_weight = -1.20
-hide_author_weight = -2.00
+# 行为效用单位只表达相对强度；学习器会在聚合后用 tanh 压缩，不能直接当排名加分。
+# 用户给出的核心层级：标题查看 +1、原推 +10、收藏 +50、误抓 × -10、不想看这类 -50。
+open_detail_weight = 1.0
+copy_weight = 5.0
+open_original_weight = 10.0
+bookmark_weight = 50.0
+# 取消收藏用于抵消此前 bookmark 证据，不等同于“不想看这类”。
+unbookmark_weight = -50.0
+# 误抓只进入 Discovery quality，不进入 topic/author preference。
+reject_candidate_weight = -10.0
+not_interested_weight = -50.0
+hide_author_weight = -100.0
+
+# 大权重先累积为证据，再压缩成有限偏好场，避免一次点击直接把推荐锁死。
+preference_category_scale = 150.0
+preference_subcategory_scale = 100.0
+preference_author_scale = 100.0
+
+# Query/source 质量场：只对净负质量证据施加小幅惩罚。
+discovery_quality_scale = 30.0
+discovery_quality_penalty_cap = 0.10
 
 [topology]
 # 知识拓扑重整化阈值：未固化条目达到此数量触发重整化分析
