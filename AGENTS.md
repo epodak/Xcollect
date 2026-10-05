@@ -64,10 +64,13 @@
    - Search/Discovery source failure must never corrupt or delete bookmark-plane data; the two Cron jobs may report a composite failure but execute independently.
    - A discovery candidate may enter `tweets` only through an explicit bookmark/save action followed by bookmark synchronization.
    - Promotion is two-phase: explicit save -> `saved_pending` -> bookmark sync/read-back -> `saved`. UI must not count `saved_pending` as a durable bookmark.
-   - Behavioral utility is relative evidence, not direct ranking points: title/detail open ≈ +1, open original ≈ +10, bookmark ≈ +50, false-positive `×` ≈ -10 in Discovery-quality space only, and “不想看这类” ≈ -50 in semantic preference space. Aggregate first, then squash into bounded fields.
+   - Human policy defines action semantics, sign and ordinal order only; learned behavior defines magnitude. Do not encode hand-written ratios such as +1/+10/+50 as recommendation truth. Positive order is detail/open < copy < open-original < bookmark; false-positive `×` remains Discovery-quality only; “不想看这类” remains semantic preference only.
    - Discovery rejection has two orthogonal meanings:
      - card-corner `×` = false positive / wrong candidate; remove it from Discovery without lowering topic/author preference, while feeding Discovery quality learning;
      - “不想看这类” = semantic preference feedback; lower similar topic/author recommendations.
+   - A valid Discovery impression requires >=50% card visibility for >=1.5s; merely being rendered is not negative evidence.
+   - Action magnitude is self-calibrated from decayed aggregate sufficient statistics (not retained raw tweet content/IDs), with monotonic ordering and bounded preference fields.
+   - Selection must keep a small exploration budget among already-qualified candidates so the learner does not only confirm prior beliefs.
    - Source-query intent is enforced again after ingestion: replies that leak through X SearchTimeline despite `-filter:replies` are rejected by the cheap gate.
    - Daily selection must optimize diversity, not plain Top-K popularity.
    - Architecture/rationale: `docs/engineering/DISCOVERY_ENGINE.md`.
