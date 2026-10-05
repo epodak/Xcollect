@@ -279,7 +279,7 @@ function generateTweetCardHtml(item, idx = 0) {
   }
 
   return `
-    <div class="tweet-card ${hasMedia ? 'has-media' : 'is-text-only'} ${isDiscovery ? 'is-discovery' : ''}" data-key="${tweetId}" style="animation-delay: ${Math.min((idx % 18) * 30, 300)}ms;">
+    <div class="tweet-card ${hasMedia ? 'has-media' : 'is-text-only'} ${isDiscovery ? 'is-discovery' : ''}" data-key="${tweetId}" data-rank-position="${idx + 1}" style="animation-delay: ${Math.min((idx % 18) * 30, 300)}ms;">
       ${isDiscovery ? `
         <button type="button" class="card-reject-candidate" onclick="event.stopPropagation(); rejectDiscoveryCandidate('${tweetId}')" title="剔除误抓：这条不该进入发现流，但不会降低你对该话题的兴趣" aria-label="剔除误抓候选">×</button>
       ` : ""}
@@ -403,6 +403,10 @@ function renderTweetsBatch(container, list, startIndex, count, append = false) {
     }
   } else {
     container.innerHTML = cardsHtml;
+  }
+
+  if (typeof window.observeTweetImpressions === "function") {
+    window.observeTweetImpressions(container);
   }
 }
 
