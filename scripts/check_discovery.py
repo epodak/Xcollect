@@ -20,6 +20,7 @@ from src.discovery import (
     _post_judge_rejection_reason,
 )
 from src.preferences import apply_preference_profile
+from src.learning import estimate_action_utilities
 from src.twitter import normalize_tweet_result
 
 
@@ -45,11 +46,13 @@ def _candidate(idx, **overrides):
 def main():
     assert CONFIG.discovery_enabled is True
     assert CONFIG.discovery_retention_hours == 24.0
+    assert CONFIG.feedback_weights["impression"] == 0.0
     assert CONFIG.feedback_weights["open_detail"] == 1.0
-    assert CONFIG.feedback_weights["open_original"] == 10.0
-    assert CONFIG.feedback_weights["bookmark"] == 50.0
-    assert CONFIG.feedback_weights["reject_candidate"] == -10.0
-    assert CONFIG.feedback_weights["not_interested"] == -50.0
+    assert CONFIG.feedback_weights["open_original"] == 1.0
+    assert CONFIG.feedback_weights["bookmark"] == 1.0
+    assert CONFIG.feedback_weights["reject_candidate"] == -1.0
+    assert CONFIG.feedback_weights["not_interested"] == -1.0
+    assert 0.0 < CONFIG.learning_exploration_ratio <= 0.25
     assert CONFIG.query_id_search
     assert isinstance(CONFIG.discovery_queries, list) and CONFIG.discovery_queries
 
