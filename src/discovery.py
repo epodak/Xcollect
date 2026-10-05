@@ -910,6 +910,72 @@ async def set_candidate_state(env, tweet_id: str, state: str) -> tuple[bool, str
     return True, "candidate state updated"
 
 
+async def purge_expired_discovery(env, now=None) -> dict:
+    """Physically erase stale Discovery observations and ephemeral training evidence.
+
+    Durable bookmarks are a different plane and remain untouched. A saved_pending
+    candidate is retained until bookmark synchronization resolves the explicit save.
+    """
+    if not hasattr(env, "DB"):
+        return {"expired_candidates": 0, "purged_feedback": 0}
+
+    await ensure_discovery_schema(env)
+    now = now or datetime.now(timezone.utc)
+    res = await env.DB.prepare(
+        "SELECT tweet_id, created_at, first_seen_at, state FROM discovery_candidates"
+    ).all()
+
+    expired_ids = []
+    for row in res.results:
+        state = str(_row_get(row, "state", "") or "")
+        if state == "saved_pending":
+            continue
+        if not _within_retention(
+            _row_get(row, "created_at", ""),
+            _row_get(row, "first_seen_at", ""),
+            now=now,
+        ):
+            tweet_id = str(_row_get(row, "tweet_id", "") or "")
+            if tweet_id:
+                expired_ids.append(tweet_id)
+
+    if not expired_ids:
+        return {"expired_candidates": 0, "purged_feedback": 0}
+
+    ids_json = json.dumps(expired_ids, ensure_ascii=False)
+
+    await env.DB.prepare(
+        "DELETE FROM daily_feed WHERE tweet_id IN (SELECT value FROM json_each(?))"
+    ).bind(ids_json).run()
+
+    purged_feedback = 0
+    try:
+        before = await env.DB.prepare(
+            "SELECT COUNT(*) AS total FROM feedback_events "
+            "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
+            "AND tweet_id NOT IN (SELECT id FROM tweets)"
+        ).bind(ids_json).all()
+        purged_feedback = int(_row_get(before.results[0], "total", 0) or 0) if before.results else 0
+        await env.DB.prepare(
+            "DELETE FROM feedback_events "
+            "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
+            "AND tweet_id NOT IN (SELECT id FROM tweets)"
+        ).bind(ids_json).run()
+    except Exception:
+        # feedback_events is lazy-created; absence means there is nothing to purge.
+        purged_feedback = 0
+
+    await env.DB.prepare(
+        "DELETE FROM discovery_candidates "
+        "WHERE tweet_id IN (SELECT value FROM json_each(?))"
+    ).bind(ids_json).run()
+
+    return {
+        "expired_candidates": len(expired_ids),
+        "purged_feedback": purged_feedback,
+    }
+
+
 async def reconcile_candidate_promotions(env) -> int:
     """Promote saved_pending candidates only after the bookmark plane confirms them.
 
