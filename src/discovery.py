@@ -8,6 +8,7 @@ diversity-constrained daily feed.
 
 import json
 import math
+import hashlib
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
@@ -752,6 +753,11 @@ async def _active_rankable_rows(env) -> list[dict]:
 
 
 def diversity_select(rows: list[dict], limit: int | None = None) -> list[dict]:
+    """Diversity-constrained selection with a small exploration budget.
+
+    Exploration never bypasses quality gates; it only samples among already
+    rankable candidates. A stable day/id hash makes the sample reproducible.
+    """
     limit = max(1, int(limit or CONFIG.discovery_daily_limit))
     author_cap = max(1, int(CONFIG.discovery_author_daily_cap))
     sub_cap = max(1, int(CONFIG.discovery_subcategory_daily_cap))
@@ -759,37 +765,86 @@ def diversity_select(rows: list[dict], limit: int | None = None) -> list[dict]:
         1,
         int(limit * float(CONFIG.discovery_category_daily_ratio_cap)),
     )
+    exploration_ratio = max(
+        0.0,
+        min(0.25, float(CONFIG.learning_exploration_ratio)),
+    )
+    exploit_target = max(1, int(round(limit * (1.0 - exploration_ratio))))
 
     author_counts = {}
     sub_counts = {}
     category_counts = {}
     selected = []
+    selected_ids = set()
 
-    for item in sorted(
-        rows,
-        key=lambda row: float(row.get("related_hot_score", 0.0)),
-        reverse=True,
-    ):
+    def can_take(item):
         author_key = str(
             item.get("username") or item.get("author") or "unknown"
         ).lower()
         category = str(item.get("category") or "未分类")
         sub = str(item.get("sub_category") or "未分类")
-
         if author_counts.get(author_key, 0) >= author_cap:
-            continue
+            return False
         if sub_counts.get((category, sub), 0) >= sub_cap:
-            continue
+            return False
         if category_counts.get(category, 0) >= category_cap:
-            continue
+            return False
+        return True
 
+    def take(item):
+        tweet_id = str(item.get("id", "") or "")
+        author_key = str(
+            item.get("username") or item.get("author") or "unknown"
+        ).lower()
+        category = str(item.get("category") or "未分类")
+        sub = str(item.get("sub_category") or "未分类")
         selected.append(item)
+        if tweet_id:
+            selected_ids.add(tweet_id)
         author_counts[author_key] = author_counts.get(author_key, 0) + 1
         sub_counts[(category, sub)] = sub_counts.get((category, sub), 0) + 1
         category_counts[category] = category_counts.get(category, 0) + 1
 
+    ranked = sorted(
+        rows,
+        key=lambda row: float(row.get("related_hot_score", 0.0)),
+        reverse=True,
+    )
+
+    # Exploit: strongest current model belief.
+    for item in ranked:
+        if len(selected) >= exploit_target:
+            break
+        if can_take(item):
+            take(item)
+
+    # Explore: deterministic sample from the remaining already-qualified pool.
+    remaining = [
+        item for item in ranked
+        if str(item.get("id", "") or "") not in selected_ids
+    ]
+    salt = _today()
+    remaining.sort(
+        key=lambda item: hashlib.sha256(
+            (salt + "|" + str(item.get("id", "") or "")).encode("utf-8")
+        ).hexdigest()
+    )
+    for item in remaining:
         if len(selected) >= limit:
             break
+        if can_take(item):
+            take(item)
+
+    # If exploration caps prevent filling the budget, fall back to ranked order.
+    if len(selected) < limit:
+        for item in ranked:
+            if len(selected) >= limit:
+                break
+            tweet_id = str(item.get("id", "") or "")
+            if tweet_id in selected_ids:
+                continue
+            if can_take(item):
+                take(item)
 
     return selected
 
