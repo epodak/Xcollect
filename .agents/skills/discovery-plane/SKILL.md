@@ -25,7 +25,12 @@ Invariant:
 ```text
 ActiveDiscovery ∩ DurableBookmarks = ∅
 All = ActiveDiscovery ∪ DurableBookmarks
+ActiveDiscovery requires source_post_age < 24h UTC
 ```
+
+Discovery is a rolling freshness window, not a calendar-day inbox. A non-durable
+candidate that reaches 24h source age must disappear from projection immediately
+and be physically garbage-collected with its ephemeral feedback evidence.
 
 ## Canonical state machine
 
@@ -118,8 +123,19 @@ The UI may say “waiting for sync confirmation” while pending, but must not f
 
 ## Feedback learning rules
 
-- `feedback_events` is append-only evidence.
-- Preference aggregation must be reproducible from events.
+- Behavioral utilities are relative evidence units, not direct ranking points:
+  - detail/title open ≈ +1;
+  - copy ≈ +5;
+  - open original ≈ +10;
+  - bookmark ≈ +50;
+  - corner × false positive ≈ -10 in Discovery-quality only;
+  - “不想看这类” ≈ -50 in semantic preference;
+  - unbookmark offsets prior bookmark evidence.
+- Aggregate evidence first, then squash it into bounded fields; never add +50 directly to `related_hot_score`.
+- `feedback_events` is immutable during its retention window, not eternal.
+- When an unpromoted Discovery candidate expires at 24h source age, purge its ephemeral feedback events too.
+- Durable Bookmark evidence is exempt from Discovery TTL.
+- Preference aggregation must be reproducible from retained events.
 - Discovery-quality events are excluded from topic/author preference aggregation.
 - Query-quality penalties must be bounded; one accidental rejection must not destroy a useful discovery channel.
 - Positive actions carrying discovery provenance may offset noisy-query penalties.
@@ -150,8 +166,12 @@ pnpm run check
 
 At minimum the change must preserve:
 
+- source posts >= 24h old are rejected before AI;
+- stale non-durable candidates and their ephemeral feedback are physically purged;
+- read projection cannot show expired rows between GC ticks;
 - reply leakage rejected before AI;
 - false-positive × does not alter topic preference;
+- behavior utility hierarchy remains +1 / +10 / +50 and -10 / -50 before bounded squash;
 - `saved_pending` is not counted as a bookmark;
 - promotion only completes after durable read-back;
 - filtered-zero is not Inbox Zero;
