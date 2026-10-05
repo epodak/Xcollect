@@ -76,14 +76,14 @@ def main():
         _tweet(id="d", category="05_前沿资讯与研读", sub_category="行业前沿与长文洞察", username="author_d"),
     ]
     feedback = [
-        {"tweet_id": "a", "action": "copy", "weight": 0.80},
-        {"tweet_id": "a", "action": "copy", "weight": 0.80},  # duplicate action must not compound
-        {"tweet_id": "a", "action": "open_detail", "weight": 0.15},
-        {"tweet_id": "c", "action": "unbookmark", "weight": -1.00},
+        {"tweet_id": "a", "action": "copy", "weight": 1.0},
+        {"tweet_id": "a", "action": "copy", "weight": 1.0},  # duplicate action must not compound
+        {"tweet_id": "a", "action": "open_detail", "weight": 1.0},
+        {"tweet_id": "c", "action": "not_interested", "weight": -1.0},
         {
             "tweet_id": "removed",
-            "action": "unbookmark",
-            "weight": -1.00,
+            "action": "not_interested",
+            "weight": -1.0,
             "context": {
                 "category": "05_前沿资讯与研读",
                 "sub_category": "行业前沿与长文洞察",
@@ -102,6 +102,15 @@ def main():
     assert CONFIG.feedback_weights["copy"] > 0
     assert CONFIG.feedback_weights["unbookmark"] < 0
     assert CONFIG.feedback_weights["not_interested"] < 0
+
+    # Unbookmark withdraws the bookmark vote; it is not semantic dislike.
+    neutral_items = [_tweet(id="u", category="X", sub_category="Y", username="u")]
+    neutral_events = [
+        {"tweet_id": "u", "action": "bookmark", "weight": 1.0},
+        {"tweet_id": "u", "action": "unbookmark", "weight": -1.0},
+    ]
+    neutral, _ = apply_preference_profile(neutral_items, neutral_events)
+    assert neutral[0]["preference_boost"] == 0
 
     print("related-hot acceptance checks: OK")
 
