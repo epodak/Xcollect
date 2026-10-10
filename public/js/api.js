@@ -152,6 +152,12 @@ const api = {
     return await resp.json();
   },
 
+  async getWatchStatus() {
+    const r = await fetch("/api/watch/status", {cache:"no-store"});
+    if (!r.ok) throw new Error("Watch status HTTP " + r.status);
+    return await r.json();
+  },
+
   async getWatches() {
     const r = await fetch("/api/watch", {cache:"no-store"});
     return await r.json();

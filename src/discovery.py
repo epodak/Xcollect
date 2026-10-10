@@ -1304,13 +1304,16 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
             "daily_feed_count": current_feed_count,
         }
 
-    if not await discovery_due(env, force=force):
+    # Global Discovery uses its 2-hour cadence. Topic Watch is a separate
+    # quarter-hour cron poll and must not be gated by discovery:last_run_at.
+    from watch import watch_poll_due, watch_query_plan, save_matches, record_watch_poll
+    global_due = await discovery_due(env, force=force)
+    watch_due = await watch_poll_due(env, force=force)
+    if not global_due and not watch_due:
         return 200, {
-            "success": True,
-            "skipped": True,
-            "reason": "not_due",
-            "retention": purge_meta,
-            "daily_feed_count": current_feed_count,
+            "success": True, "skipped": True, "reason": "not_due",
+            "retention": purge_meta, "daily_feed_count": current_feed_count,
+            "global_due": False, "watch_due": False,
         }
 
     auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
@@ -1322,13 +1325,9 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
             "message": "Discovery uses the same X_AUTH_TOKEN / X_CT0 session as bookmark sync.",
         }
 
-    selected_queries = await select_queries_for_run(env)
-    try:
-        from watch import watch_query_plan, save_matches
-    except ImportError:
-        from src.watch import watch_query_plan, save_matches
-        
-    selected_queries.extend(await watch_query_plan(env, limit=2))
+    global_queries = await select_queries_for_run(env) if global_due else []
+    watch_queries = await watch_query_plan(env, limit=2) if watch_due else []
+    selected_queries = global_queries + watch_queries
     if not selected_queries:
         return 400, {
             "success": False,
@@ -1343,9 +1342,16 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
     accepted_by_id = {}
     topic_matches = []
     query_reports = []
+    watch_reports = []
+    global_successful_queries = 0
+    watch_accepted_count = 0
 
     for spec in selected_queries:
         query = spec["query"]
+        is_watch = bool(spec.get("topic_id"))
+        watch_entry = {"topic_id": str(spec["topic_id"]), "query": query,
+                       "pulled_count": 0, "accepted_count": 0,
+                       "rejected_count": 0, "rejection_reasons": {}} if is_watch else None
         try:
             rows, meta = await fetch_search_timeline(
                 auth_token,
@@ -1357,12 +1363,16 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
                 sub_category_hint=spec.get("sub_category", ""),
             )
             query_reports.append(meta)
+            if is_watch:
+                watch_entry["pulled_count"] = len(rows)
+            else:
+                global_successful_queries += 1
         except Exception as err:
-            query_reports.append({
-                "query": query,
-                "error": str(err),
-                "pulled_count": 0,
-            })
+            failure = {"query": query, "error": str(err)[:250], "pulled_count": 0}
+            query_reports.append(failure)
+            if is_watch:
+                watch_entry["error"] = failure["error"]
+                watch_reports.append(watch_entry)
             continue
 
         raw_count += len(rows)
@@ -1372,39 +1382,65 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
                 continue
             if tweet_id in known_bookmarks:
                 duplicate_bookmark_count += 1
+                if is_watch:
+                    watch_entry["rejected_count"] += 1
+                    reasons = watch_entry["rejection_reasons"]
+                    reasons["already_bookmarked"] = reasons.get("already_bookmarked", 0) + 1
                 continue
 
-            accepted, _reason, penalty = cheap_gate_candidate(item)
+            accepted, reject_reason, penalty = cheap_gate_candidate(item)
             if not accepted:
                 rejected_count += 1
+                if is_watch:
+                    watch_entry["rejected_count"] += 1
+                    reasons = watch_entry["rejection_reasons"]
+                    reasons[reject_reason] = reasons.get(reject_reason, 0) + 1
                 continue
 
             item["penalty_score"] = penalty
             item["discovery_source"] = "x_search"
             item["discovery_query"] = query
             accepted_by_id[tweet_id] = item
-            if spec.get('topic_id'):
-                topic_matches.append((spec['topic_id'], tweet_id, query))
+            if is_watch:
+                topic_matches.append((spec["topic_id"], tweet_id, query))
+                watch_entry["accepted_count"] += 1
+                watch_accepted_count += 1
+        if is_watch:
+            watch_reports.append(watch_entry)
 
     successful_queries = sum(
         1 for report in query_reports if not report.get("error")
     )
-    await _meta_set(env, "discovery:last_attempt_at", _now_iso())
+    if global_queries:
+        await _meta_set(env, "discovery:last_attempt_at", _now_iso())
     if successful_queries == 0:
+        if watch_queries:
+            await record_watch_poll(env, watch_reports, 0,
+                                    error="X SearchTimeline queries all failed")
         return 502, {
             "success": False,
             "error": "DISCOVERY_SOURCE_UNAVAILABLE",
             "message": "All SearchTimeline queries failed; bookmark sync remains unaffected.",
             "queries": query_reports,
+            "watch": watch_reports,
         }
 
     accepted = list(accepted_by_id.values())
-    persisted = await persist_candidates(env, accepted)
-    await save_matches(env, topic_matches)
+    try:
+        persisted = await persist_candidates(env, accepted)
+        saved_matches = await save_matches(env, topic_matches)
+        judged, judge_meta = await judge_candidates(env, accepted)
+        judged_persisted = await persist_judgements(env, judged)
+        feed_count, _selected = await materialize_daily_feed(env)
+    except Exception as err:
+        if watch_queries:
+            await record_watch_poll(env, watch_reports, 0,
+                                    error="persistence or scoring failed: " + str(err)[:160])
+        raise
 
-    judged, judge_meta = await judge_candidates(env, accepted)
-    judged_persisted = await persist_judgements(env, judged)
-    feed_count, _selected = await materialize_daily_feed(env)
+    watch_run = None
+    if watch_queries:
+        watch_run = await record_watch_poll(env, watch_reports, watch_accepted_count)
 
     summary = {
         "raw": raw_count,
@@ -1413,15 +1449,20 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         "feed": feed_count,
         "expired": int(purge_meta.get("expired_candidates", 0) or 0),
     }
-    await _meta_set(env, "discovery:last_run_at", _now_iso())
-    await _meta_set(
-        env,
-        "discovery:last_run_summary",
-        json.dumps(summary, ensure_ascii=False),
-    )
+    # A successful Watch search must not postpone the next Global run.
+    if global_successful_queries:
+        await _meta_set(env, "discovery:last_run_at", _now_iso())
+        await _meta_set(
+            env, "discovery:last_run_summary",
+            json.dumps(summary, ensure_ascii=False),
+        )
 
-    return 200, {
-        "success": True,
+    watch_failed = bool(watch_run and watch_run["state"] == "failed")
+    global_failed = bool(global_queries and not global_successful_queries)
+    return (502 if watch_failed or global_failed else 200), {
+        "success": not (watch_failed or global_failed),
+        "error": ("WATCH_SEARCH_FAILED" if watch_failed else
+                  "GLOBAL_DISCOVERY_FAILED" if global_failed else ""),
         "stage": "published",
         "query_count": len(selected_queries),
         "successful_queries": successful_queries,
@@ -1435,4 +1476,8 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         "retention": purge_meta,
         "judge": judge_meta,
         "queries": query_reports,
+        "global_due": global_due,
+        "watch_due": watch_due,
+        "watch": watch_run,
+        "watch_matches_saved": saved_matches,
     }

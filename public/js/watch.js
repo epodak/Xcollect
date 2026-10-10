@@ -30,6 +30,7 @@
     }
     if(!watches.length)note("尚未创建追踪主题。");
     else if(!selected)note("选择一个主题查看最近 24 小时的发现。");
+
   }
   async function openWatch(id) {
     selected=id;await refresh();
@@ -37,7 +38,31 @@
     if(!r.ok){note(r.data.error||"无法读取主题");return;}
     const results=el("watchResults");results.replaceChildren();
     const items=r.data.data||[];
-    note("最近 24 小时匹配 "+items.length+" 条；这里只展示候选，不是 X 收藏。");
+    let statusText = "最近 24 小时匹配 " + items.length + " 条；这里只展示候选，不是 X 收藏。";
+    try {
+      const state = await api.getWatchStatus();
+      const run = state.summary || {};
+      if (run.state === "failed") {
+        const failure = (run.queries || []).find(q => q.error);
+        statusText += " 最近搜索失败：" + (run.error || (failure && failure.error) || "未知错误");
+      } else if (run.state === "partial") {
+        statusText += " 部分搜索失败，成功查询 " + run.successful_queries + "/" + run.total_queries + "。";
+      } else if (run.attempted_at) {
+        statusText += " 最近检查：" + new Date(run.attempted_at).toLocaleString()
+          + "；成功查询 " + (run.successful_queries || 0) + "/" + (run.total_queries || 0) + "。";
+        if (items.length === 0) {
+          const forTopic = (run.queries || []).filter(q => q.topic_id === id);
+          if (forTopic.length) {
+            const fetched = forTopic.reduce((n, q) => n + (Number(q.pulled_count) || 0), 0);
+            const admitted = forTopic.reduce((n, q) => n + (Number(q.accepted_count) || 0), 0);
+            statusText += " 本轮原始结果 " + fetched + " 条，通过初筛 " + admitted + " 条。";
+          }
+        }
+      }
+    } catch (err) {
+      statusText += " 运行状态暂不可用：" + String(err.message || err);
+    }
+    note(statusText);
     for(const item of items){
       const card=document.createElement("article");card.className="topic-watch-result";
       const h=document.createElement("h4");h.textContent=item.title||item.snippet||"Untitled";

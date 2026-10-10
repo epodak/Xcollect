@@ -25,7 +25,7 @@ from storage import (
     batch_classify_pending,
     record_feedback_event,
 )
-from watch import create_watch, list_watches, set_watch_state, watch_feed
+from watch import create_watch, list_watches, set_watch_state, watch_feed, watch_status
 from discovery import (
     get_daily_feed,
     get_discovery_status,
@@ -360,6 +360,9 @@ async def on_fetch(request, env):
                 "preference_evidence_pairs": bookmarks.get("preference_evidence_pairs", 0),
                 "data": data_list,
             }, 200, cache_seconds=0)
+
+        if path == "/api/watch/status" and method == "GET":
+            return json_resp(await watch_status(env), 200, cache_seconds=0)
 
         if path == "/api/watch" and method == "GET":
             return json_resp({"success":True,"topics":await list_watches(env)},200,cache_seconds=0)

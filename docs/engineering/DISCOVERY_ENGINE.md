@@ -400,3 +400,20 @@ A Watch is a **durable search policy**, not a taxonomy node and not a saved disc
 The Watch API is `GET/POST /api/watch`, `POST /api/watch/state` (active/paused), and `GET /api/watch/feed?id=<topic_id>`. Existing Cloudflare Access protection applies. Results enforce the same rolling source-time TTL, never materialize permanent copies, and never count as X bookmarks. Expired candidate references are cleaned during Discovery GC. Bookmark authority remains `tweets` after X sync.
 
 Current v1 limits: query expansion is deterministic and keyword-based; personalized semantic intent scoring and model-generated query expansion remain future work. The Watch feed ranks its own matched candidates independently of Global Discovery's 300-item daily selection, while reusing candidate quality scores and rejection state. No background source poll starts from page load.
+
+## Topic Watch operational reliability (2026-10-10)
+
+Topic Watch polls on its own 15-minute UTC Cron slot; Global Discovery retains
+its independent two-hour discovery interval. A Watch poll never advances the
+Global Discovery success clock unless Global queries were actually successful.
+
+Watch-to-candidate links must be written in bounded JSON/bulk SQL batches,
+not with one D1 write per search result. The public
+`GET /api/watch/status` endpoint reports the last poll timestamp, per-query
+HTTP/protocol failures, counts and rejected candidate reasons. A 0-result
+successful search is distinguished from no poll, all-query failure and content
+filtered by Discovery's 24-hour/quality gates.
+
+A direct local `wrangler deploy` does not update main. Production deployment
+must be reconciled through the merged commit and main branch CI/CD, otherwise
+the next main push may overwrite a locally deployed feature branch.

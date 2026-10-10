@@ -95,6 +95,88 @@ async def set_watch_state(env, topic_id, state):
     await env.DB.prepare("UPDATE watch_topics SET state=?,updated_at=? WHERE id=?").bind(state,_now(),topic_id).run()
     return {"id":topic_id,"state":state}
 
+
+def _quarter_hour_slot(now=None):
+    """UTC cron slot: jitter around :00/:15/:30/:45 cannot skip a poll."""
+    dt = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return dt.replace(minute=(dt.minute // 15) * 15, second=0, microsecond=0).isoformat()
+
+
+async def _watch_meta(env, key, default=""):
+    try:
+        row = (await env.DB.prepare(
+            "SELECT value FROM meta_kv WHERE key = ?"
+        ).bind(key).all()).results
+        return str(_value(row[0], "value", default) or default) if row else default
+    except Exception:
+        return default
+
+
+async def _set_watch_meta(env, key, value):
+    await env.DB.prepare(
+        "INSERT INTO meta_kv(key, value, updated_at) VALUES(?, ?, datetime('now')) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at"
+    ).bind(key, str(value)).run()
+
+
+async def watch_poll_due(env, force=False, now=None):
+    """Watch polls every cron quarter-hour, independent from global 2h search."""
+    await ensure_watch_schema(env)
+    active = (await env.DB.prepare(
+        "SELECT 1 AS active FROM watch_topics WHERE state='active' LIMIT 1"
+    ).all()).results
+    if not active:
+        return False
+    if force:
+        return True
+    return await _watch_meta(env, "watch:last_poll_slot") != _quarter_hour_slot(now)
+
+
+async def record_watch_poll(env, queries, accepted_count, error="", now=None):
+    """A failed/empty search remains distinguishable in the persistent status."""
+    reports = list(queries or [])
+    succeeded = sum(1 for row in reports if not row.get("error"))
+    state = "failed" if error or (reports and succeeded == 0) else (
+        "partial" if succeeded < len(reports) else "success"
+    )
+    timestamp = (now or datetime.now(timezone.utc)).isoformat()
+    status = {
+        "state": state,
+        "attempted_at": timestamp,
+        "total_queries": len(reports),
+        "successful_queries": succeeded,
+        "accepted_count": int(accepted_count or 0),
+        "queries": reports,
+        "error": str(error or "")[:300],
+    }
+    await _set_watch_meta(env, "watch:last_poll_slot", _quarter_hour_slot(now))
+    await _set_watch_meta(env, "watch:last_attempt_at", timestamp)
+    await _set_watch_meta(env, "watch:last_run_summary", json.dumps(status, ensure_ascii=False))
+    if state == "success":
+        await _set_watch_meta(env, "watch:last_success_at", timestamp)
+    return status
+
+
+async def watch_status(env):
+    await ensure_watch_schema(env)
+    raw = await _watch_meta(env, "watch:last_run_summary", "{}")
+    try:
+        summary = json.loads(raw)
+    except Exception:
+        summary = {}
+    active = (await env.DB.prepare(
+        "SELECT COUNT(*) AS total FROM watch_topics WHERE state='active'"
+    ).all()).results
+    return {
+        "success": True,
+        "active_topics": int(_value(active[0], "total", 0) or 0) if active else 0,
+        "last_attempt_at": await _watch_meta(env, "watch:last_attempt_at"),
+        "last_success_at": await _watch_meta(env, "watch:last_success_at"),
+        "current_slot": _quarter_hour_slot(),
+        "summary": summary,
+    }
+
+
 async def watch_query_plan(env, limit=2):
     await ensure_watch_schema(env)
     rows = (await env.DB.prepare(
@@ -125,11 +207,27 @@ async def watch_query_plan(env, limit=2):
              "category":"01_人工智能与Agent","sub_category":"用户主题追踪"} for r in picked]
 
 async def save_matches(env, matches):
+    """Bound D1 costs: bulk JSON set INSERT rather than one SQL per tweet."""
+    if not matches:
+        return 0
     await ensure_watch_schema(env)
-    for topic_id, tweet_id, query in sorted(set(matches)):
-        await env.DB.prepare(
-            "INSERT OR IGNORE INTO watch_candidate_matches(topic_id,tweet_id,query,matched_at) VALUES(?,?,?,?)"
-        ).bind(topic_id,tweet_id,query,_now()).run()
+    unique = sorted({(str(t), str(i), str(q)) for t, i, q in matches if t and i})
+    if not unique:
+        return 0
+    timestamp = _now()
+    statement = (
+        "INSERT OR IGNORE INTO watch_candidate_matches(topic_id,tweet_id,query,matched_at) "
+        "SELECT json_extract(value,'$.topic_id'),json_extract(value,'$.tweet_id'),"
+        "json_extract(value,'$.query'),json_extract(value,'$.matched_at') "
+        "FROM json_each(?)"
+    )
+    for start in range(0, len(unique), 100):
+        payload = json.dumps([
+            {"topic_id": topic, "tweet_id": tweet_id, "query": query, "matched_at": timestamp}
+            for topic, tweet_id, query in unique[start:start + 100]
+        ], ensure_ascii=False)
+        await env.DB.prepare(statement).bind(payload).run()
+    return len(unique)
 
 async def watch_feed(env, topic_id):
     await ensure_watch_schema(env)
