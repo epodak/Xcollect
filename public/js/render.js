@@ -249,8 +249,8 @@ function generateTweetCardHtml(item, idx = 0) {
   const hasCanonicalBody = Boolean(String(item.body_raw || "").trim());
   const fullText = (hasCanonicalBody ? cleanBodyRaw(item.body_raw) : cleanSnippet(item.snippet)) || "";
   const title = cleanTitle(item.title || "");
-  const titlePrefix = title.replace(/(?:\\.\\.\\.|…)\\s*$/, "").trim();
-  const bodyLead = fullText.replace(/^#{1,3}\\s+/, "").trim();
+  const titlePrefix = title.replace(/(?:\.\.\.|…)\s*$/, "").trim();
+  const bodyLead = fullText.replace(/^#{1,3}\s+/, "").trim();
   const repeatedTitle = titlePrefix.length >= 18 && bodyLead.startsWith(titlePrefix);
   const needsInlineExpand = fullText.length > 1600;
   const readableBody = parseMarkdownToHtml(fullText || "暂无可阅读正文。", [], []);
