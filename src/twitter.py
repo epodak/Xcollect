@@ -20,6 +20,15 @@ except ImportError:
     from src.classifier import rule_classify_tweet
 
 try:
+    from x_bookmark_protocol import (
+        operation_name, query_id_candidates, mutation_payload, interpret_mutation_response,
+    )
+except ImportError:
+    from src.x_bookmark_protocol import (
+        operation_name, query_id_candidates, mutation_payload, interpret_mutation_response,
+    )
+
+try:
     from js import Headers, Object as JsObject, fetch as js_fetch
 except ImportError:
     Headers = None
@@ -113,6 +122,7 @@ def build_x_headers(auth_token: str, ct0: str, referer: str = "https://x.com/i/b
     h.set("accept-language", "en-US,en;q=0.9")
     h.set("content-type", "application/json")
     h.set("referer", referer)
+    h.set("origin", "https://x.com")
     h.set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
     h.set("cookie", f"auth_token={auth_token}; ct0={ct0};")
     return h
@@ -692,28 +702,66 @@ async def fetch_search_timeline(
     }
 
 
+async def resolve_mutation_query_ids(action: str) -> list[str]:
+    """Resolve actual operation ID, not the unrelated Bookmarks timeline ID.
+
+    The registry is public and may lag X's own private client. Only use a
+    validated operation/method/path; the checked-in fallback remains available.
+    """
+    operation_name(action)  # validate without falling through to DeleteBookmark
+    fallback = QUERY_ID_CREATE if action == "create" else QUERY_ID_DELETE
+    registry = None
+    url = getattr(CONFIG, "query_id_registry_url", "") or ""
+    if url and js_fetch is not None:
+        try:
+            response = await js_fetch(url)
+            if int(getattr(response, "status", 0) or 0) == 200:
+                registry = json.loads(await response.text())
+        except Exception as error:
+            # Do not expose private headers or fail a user action on registry outage.
+            print("X bookmark operation registry unavailable:", str(error)[:120])
+    return query_id_candidates(action, registry, fallback)
+
+
 async def call_x_bookmark_api(tweet_id: str, action: str, auth_token: str, ct0: str) -> tuple[bool, str]:
     if js_fetch is None:
         return False, "当前运行环境不支持 js_fetch"
-    query_id = QUERY_ID_CREATE if action == "create" else QUERY_ID_DELETE
-    endpoint = "CreateBookmark" if action == "create" else "DeleteBookmark"
-    x_url = f"https://x.com/i/api/graphql/{query_id}/{endpoint}"
-    init = JsObject.new()
-    init.method = "POST"
-    init.headers = build_x_headers(auth_token, ct0)
-    init.body = json.dumps({"variables": {"tweet_id": str(tweet_id)}})
-    x_resp = await js_fetch(x_url, init)
-    status = int(getattr(x_resp, "status", 0) or 0)
-    res_text = await x_resp.text()
     try:
-        res_data = json.loads(res_text)
-    except Exception:
-        return False, f"X {endpoint} 返回非 JSON (HTTP {status}): {res_text[:180]}"
-    if status not in (200, 201):
-        return False, f"X {endpoint} HTTP {status}: {res_text[:180]}"
-    if "errors" in res_data:
-        return False, res_data["errors"][0].get("message", "X API error")
-    return True, f"成功从 X 云端同步: {endpoint}"
+        operation = operation_name(action)
+        query_ids = await resolve_mutation_query_ids(action)
+    except ValueError as error:
+        return False, str(error)
+    if not query_ids:
+        return False, f"X {operation}: 没有有效的 GraphQL queryId"
+
+    for index, query_id in enumerate(query_ids):
+        x_url = f"https://x.com/i/api/graphql/{query_id}/{operation}"
+        try:
+            body = mutation_payload(tweet_id, query_id)
+        except ValueError as error:
+            return False, str(error)
+
+        init = JsObject.new()
+        init.method = "POST"
+        init.headers = build_x_headers(auth_token, ct0)
+        init.body = body
+        try:
+            response = await js_fetch(x_url, init)
+            status = int(getattr(response, "status", 0) or 0)
+            raw = await response.text()
+        except Exception as error:
+            # Transport uncertainty: do not blindly retry a user mutation.
+            return False, f"X {operation} 网络失败，操作结果未确认: {str(error)[:160]}"
+
+        ok, message = interpret_mutation_response(action, status, raw, query_id)
+        if ok:
+            return True, message
+        if status == 404 and index + 1 < len(query_ids):
+            # Only a definite rejection can move to another known operation ID.
+            continue
+        return False, message
+
+    return False, f"X {operation}: 所有已知操作 ID 均被 X 拒绝"
 
 
 async def fetch_remote_bookmarks(

@@ -26,6 +26,9 @@ from datetime import datetime, timezone
 
 # 导入集中解耦配置中心
 from config_loader import CONFIG
+from src.x_bookmark_protocol import (
+    operation_name, query_id_candidates, mutation_payload, interpret_mutation_response,
+)
 from src.ranking import enrich_related_hot_many
 from src.preferences import apply_preference_profile
 from src.retrieval import search_items
@@ -373,47 +376,75 @@ def get_base_headers(auth_token, ct0):
         "x-csrf-token": ct0,
         "x-twitter-active-user": "yes",
         "x-twitter-auth-type": "OAuth2Session",
+        "x-twitter-client-language": "en",
+        "origin": "https://x.com",
+        "referer": "https://x.com/i/bookmarks",
         "content-type": "application/json",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
         "cookie": f"auth_token={auth_token}; ct0={ct0};"
     }
 
 
+def resolve_mutation_query_ids_local(action):
+    """Read community operation registry and use only validated write IDs."""
+    operation_name(action)
+    fallback = QUERY_ID_CREATE if action == "create" else QUERY_ID_DELETE
+    registry = None
+    registry_url = getattr(CONFIG, "query_id_registry_url", "") or ""
+    if registry_url:
+        try:
+            request = urllib.request.Request(
+                registry_url, headers={"User-Agent": "Xcollect/1.0"})
+            with urllib.request.urlopen(request, timeout=CONFIG.timeout) as response:
+                registry = json.loads(response.read().decode("utf-8"))
+        except Exception as error:
+            print("X bookmark operation registry unavailable:", str(error)[:120])
+    return query_id_candidates(action, registry, fallback)
+
+
 def call_x_bookmark_api(tweet_id, action="delete"):
     creds = get_credentials()
     auth_token = creds.get("auth_token")
     ct0 = creds.get("ct0")
-
     if not auth_token or not ct0:
         return False, "未配置 X 平台凭证 (缺少 auth_token 或 ct0)"
 
-    if action == "create":
-        query_id = QUERY_ID_CREATE
-        endpoint = "CreateBookmark"
-    else:
-        query_id = QUERY_ID_DELETE
-        endpoint = "DeleteBookmark"
-
-    url = f"https://x.com/i/api/graphql/{query_id}/{endpoint}"
-    headers = get_base_headers(auth_token, ct0)
-    payload = json.dumps({"variables": {"tweet_id": str(tweet_id)}}).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-
     try:
-        with urllib.request.urlopen(req, timeout=CONFIG.timeout) as response:
-            res_body = response.read().decode("utf-8")
-            res_data = json.loads(res_body)
-            if "errors" in res_data:
-                err_msg = res_data["errors"][0].get("message", "X API 返回错误")
-                return False, f"X 平台返回错误: {err_msg}"
-            return True, f"成功同步至 X: {endpoint} OK"
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="ignore")
-        if e.code in (401, 403):
-            return False, f"X 凭证失效或 CSRF 错误 (HTTP {e.code})，请更新凭证"
-        return False, f"HTTP {e.code}: {body[:180]}"
-    except Exception as ex:
-        return False, f"网络请求异常: {str(ex)}"
+        endpoint = operation_name(action)
+        query_ids = resolve_mutation_query_ids_local(action)
+    except ValueError as error:
+        return False, str(error)
+    if not query_ids:
+        return False, f"X {endpoint}: 没有有效的 GraphQL queryId"
+
+    for index, query_id in enumerate(query_ids):
+        try:
+            payload = mutation_payload(tweet_id, query_id).encode("utf-8")
+        except ValueError as error:
+            return False, str(error)
+
+        url = f"https://x.com/i/api/graphql/{query_id}/{endpoint}"
+        request = urllib.request.Request(
+            url, data=payload,
+            headers=get_base_headers(auth_token, ct0), method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=CONFIG.timeout) as response:
+                status = response.status
+                body = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as error:
+            status = error.code
+            body = error.read().decode("utf-8", errors="replace")
+        except Exception as error:
+            return False, f"X {endpoint} 网络失败，操作结果未确认: {str(error)[:160]}"
+
+        ok, message = interpret_mutation_response(action, status, body, query_id)
+        if ok:
+            return True, message
+        if status == 404 and index + 1 < len(query_ids):
+            continue
+        return False, message
+
+    return False, f"X {endpoint}: 所有已知操作 ID 均被 X 拒绝"
 
 
 def resolve_bookmark_query_ids_local():
