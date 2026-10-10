@@ -148,7 +148,12 @@ def list_items(args) -> list[dict]:
                 continue
         filtered.append(item)
 
-    limit = getattr(args, "limit", 20)
+    limit = getattr(args, "limit", None)
+    if limit is None:
+        if query or getattr(args, "json", False) or getattr(args, "full", False) or getattr(args, "all", False):
+            limit = 0
+        else:
+            limit = 30
     if limit > 0:
         filtered = filtered[:limit]
     return filtered
@@ -226,7 +231,12 @@ def list_feed_items(args) -> list[dict]:
                 continue
         filtered.append(item)
 
-    limit = getattr(args, "limit", 20)
+    limit = getattr(args, "limit", None)
+    if limit is None:
+        if query or getattr(args, "json", False) or getattr(args, "full", False) or getattr(args, "all", False):
+            limit = 0
+        else:
+            limit = 30
     if limit > 0:
         filtered = filtered[:limit]
     return filtered
@@ -361,7 +371,8 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--json", action="store_true", help="打印结构化研究结果")
     list_cmd = sub.add_parser("list", help="列出书签清单（人类速查或让其他 AI Agent 快速消费）")
     list_cmd.add_argument("query", nargs="?", default="", help="可选关键词过滤")
-    list_cmd.add_argument("--limit", type=int, default=20, help="最多显示条数（默认 20 条，0 为全部）")
+    list_cmd.add_argument("-a", "--all", action="store_true", help="显示全量条目，不截断")
+    list_cmd.add_argument("--limit", type=int, default=None, help="最多显示条数（默认：搜索/JSON/full下为全部，直接浏览下为 30 条，0 为全部）")
     list_cmd.add_argument("--category", default="", help="按分类过滤")
     list_cmd.add_argument("--json", action="store_true", help="输出完整原始 JSON 数组")
     list_cmd.add_argument("--full", action="store_true", help="输出包含正文全文 body_raw 的 Markdown 卡片")
@@ -370,7 +381,8 @@ def build_parser() -> argparse.ArgumentParser:
     pull_cmd.add_argument("--json", action="store_true", help="JSON 格式报告拉取结果")
     feed_cmd = sub.add_parser("feed", help="列出每日全网主动搜索与 AI 评判发现的精选推文 (Discovery)")
     feed_cmd.add_argument("query", nargs="?", default="", help="可选关键词过滤")
-    feed_cmd.add_argument("--limit", type=int, default=20, help="最多显示条数（默认 20 条，0 为全部）")
+    feed_cmd.add_argument("-a", "--all", action="store_true", help="显示全量条目，不截断")
+    feed_cmd.add_argument("--limit", type=int, default=None, help="最多显示条数（默认：搜索/JSON/full下为全部，直接浏览下为 30 条，0 为全部）")
     feed_cmd.add_argument("--category", default="", help="按分类过滤")
     feed_cmd.add_argument("--pull", action="store_true", help="强制从 Cloudflare D1 刷新今日发现流")
     feed_cmd.add_argument("--feed-file", default=DEFAULT_FEED_FILE, help="本地发现流缓存路径")
@@ -486,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"     💬 {snippet[:90]}...")
                 if not items:
                     print("\n(无匹配的书签)")
+                elif len(items) < total_local and not getattr(args, "query", "") and not getattr(args, "all", False) and getattr(args, "limit", None) not in (0,):
+                    print(f"\n💡 当前显示最新 {len(items)} 条。若需查看全部 {total_local} 条，请加 -a (例如: xc all 或 xc -a)")
         elif args.command == "pull":
             rows = pull_d1_data(args.data)
             if args.json:
@@ -550,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"     💬 {snippet[:90]}...")
                 if not items:
                     print("\n(无匹配的发现推文)")
+                elif len(items) < total_feed and not getattr(args, "query", "") and not getattr(args, "all", False) and getattr(args, "limit", None) not in (0,):
+                    print(f"\n💡 当前显示前 {len(items)} 条。若需查看全部 {total_feed} 条，请加 -a (例如: xc feed all 或 xc feed -a)")
         return 0
     except (ValueError, LookupError, FileNotFoundError, RuntimeError, OSError, json.JSONDecodeError) as err:
         print(f"xcollect: {err}", file=sys.stderr)
