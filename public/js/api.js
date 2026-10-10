@@ -71,6 +71,10 @@ const api = {
 
   // 记录训练信号。失败时进入浏览器小型待重试队列，不阻塞主交互。
   async recordFeedback(tweetId, action, context = {}) {
+    // The X Bookmark timeline, not a browser click, owns terminal labels.
+    if (action === "bookmark" || action === "unbookmark") {
+      return { success: false, skipped: true, reason: "x_sync_only" };
+    }
     const eventId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
       ? globalThis.crypto.randomUUID()
       : `fb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -116,8 +120,11 @@ const api = {
     }
     if (!Array.isArray(queued) || queued.length === 0) return { flushed: 0 };
 
-    const batch = queued.slice(0, 25);
-    const remaining = queued.slice(25);
+    // Old browser builds could enqueue synthetic bookmark feedback. Drop it;
+    // retrying those events would fabricate conversions after the policy switch.
+    const eligible = queued.filter(item => item && item.action !== "bookmark" && item.action !== "unbookmark");
+    const batch = eligible.slice(0, 25);
+    const remaining = eligible.slice(25);
     let flushed = 0;
     for (const payload of batch) {
       try {
