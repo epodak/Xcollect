@@ -84,6 +84,9 @@ async def on_fetch(request, env):
                     {"success": False, "error": "NOT_FOUND"}, 404)
 
             if path == "/api/v1/decide" and method == "POST":
+                # Opt-in prevents accidental billable inference.
+                if not CONFIG.decision_enabled:
+                    return json_resp({"success": False, "error": "DECISION_DISABLED"}, 403)
                 # Explicit only: no model invocations on sync, read, or search.
                 try:
                     body = json.loads(await request.text())
@@ -91,6 +94,8 @@ async def on_fetch(request, env):
                     model = str(body.get("model") or "clef-flash")
                     if len(source_id) > 200 or not source_id or model not in ("clef-flash", "clef", "jev"):
                         raise ValueError("Invalid source id or model")
+                    if model == "jev" and not CONFIG.decision_allow_jev:
+                        return json_resp({"success": False, "error": "JEV_NOT_ENABLED"}, 403)
                 except (ValueError, TypeError, AttributeError):
                     return json_resp({"success": False, "error": "INVALID_REQUEST"}, 400)
                 stored = await load_tweets(env)
