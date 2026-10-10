@@ -181,3 +181,9 @@ main.content-area.watch-active .watch-workspace { display: block; }
 .watch-evidence summary:hover { color: rgb(var(--c-brand-bright)); }
 .watch-evidence code { display: block; white-space: pre-wrap; overflow-wrap: anywhere;
   padding: .45rem 0; font-size: .7rem; line-height: 1.5; }
+
+/* Research has its own scoped search; the global search/classify controls
+   would otherwise look interactive while filtering the hidden Feed. */
+body.watch-mode header .search-box,
+body.watch-mode #btnClassify,
+body.watch-mode #exportBookmarkBtn { display: none !important; }
