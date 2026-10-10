@@ -209,9 +209,8 @@ window.api = api;
 
 window.recordTweetFeedback = function(tweetId, action, context = {}) {
   if (!tweetId || !action) return;
-  const item = Array.isArray(window.tweets)
-    ? window.tweets.find(tweet => String(tweet.id) === String(tweetId))
-    : null;
+  const item = (window.tweets || []).find(tweet => String(tweet.id) === String(tweetId))
+    || (window.watchReaderItems || []).find(tweet => String(tweet.id) === String(tweetId));
   const mergedContext = Object.assign({
     surface: context.surface || "feed",
     sort_mode: window.sortMode || "related_hot_desc",
