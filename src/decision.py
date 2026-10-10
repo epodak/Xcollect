@@ -21,7 +21,7 @@ MODELS = {
 }
 
 
-def make_request(item: dict, model: str = "clef-flash") -> tuple[str, dict]:
+def make_request(item: dict, model: str = "clef-flash", question: str = "") -> tuple[str, dict]:
     if model not in MODELS:
         raise ValueError("Unknown decision model")
     model_id, model_selector = MODELS[model]
@@ -63,6 +63,21 @@ def make_request(item: dict, model: str = "clef-flash") -> tuple[str, dict]:
             },
         },
     }
+    if question:
+        state["research_question"] = str(question)[:200]
+        questions["on_topic"] = {
+            "type": "noul",
+            "instructions": "Does this source meaningfully address the research_question? Shared buzzwords alone are insufficient.",
+            "criteria": {
+                "true": "Substantive evidence or a relevant perspective on the question",
+                "false": "Does not materially address the question",
+            },
+        }
+        questions["promotional"] = {
+            "type": "noul",
+            "instructions": "Is this predominantly advertising, affiliate content, empty hype or spam?",
+            "criteria": {"true": "Mostly promotional", "false": "Useful independently informative content"},
+        }
     request = {"state": state, "questions": questions}
     if model_selector is not None:
         request["model"] = model_selector
@@ -83,10 +98,10 @@ def parse_result(result) -> dict:
     return {"answers": answers, "usage": raw.get("usage", {}), "reported_model": raw.get("model", "")}
 
 
-async def evaluate_bookmark(env, item: dict, model: str = "clef-flash") -> dict:
+async def evaluate_bookmark(env, item: dict, model: str = "clef-flash", question: str = "") -> dict:
     if not hasattr(env, "AI") or getattr(env, "AI") is None:
         raise RuntimeError("Cloudflare AI binding is unavailable")
-    model_id, request = make_request(item, model)
+    model_id, request = make_request(item, model, question)
     payload = JsJSON.parse(json.dumps(request)) if JsJSON is not None else request
     result = await env.AI.run(model_id, payload)
     return {"model_id": model_id, "source_id": str(item.get("id")), **parse_result(result)}

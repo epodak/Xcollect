@@ -85,6 +85,16 @@ data/xcollect.json
 
 ## 🔎 CLI：直接检索、阅读和导出已收藏推文
 
+**研究闭环已实现：** `xc ask "我想了解 Opus 5.5"` 和
+`xc research "Jev" --out ./notes/jev` 会自动执行候选检索、Clef/Jev
+类型化判决、生成式 LLM 综合以及原推证据引用。不再要求手动逐条 `decide`。
+选择受认证的 `--provider worker`，或设置 Cloudflare AI Token 使用
+`--provider direct`。详见 [研究管线运行指南](./docs/engineering/RESEARCH_PIPELINE.md)
+及 [ADR-0003](./docs/decisions/ADR-0003-END-TO-END-EVIDENCE-RESEARCH.md)。
+
+云端 D1 FTS5 需要单独应用迁移；Vectorize 尚未接入。模型 API 未配置时，
+会返回明确错误而不是虚构研究结论。
+
 在仓库目录运行 `python -m pip install -e .` 安装后，可直接在终端中敲 `xcollect`（或使用系统全局快捷命令 `xc`）：
 
 ```bash

@@ -7,6 +7,9 @@ import hmac
 
 from retrieval import search_items
 from decision import evaluate_bookmark
+from research import recall_bookmarks
+from research_cloud import research_with_workers_ai
+from research_index import recall_cloud
 
 from config_loader import CONFIG
 from twitter import call_x_bookmark_api
@@ -61,15 +64,15 @@ async def on_fetch(request, env):
                     limit = int(query.get("limit", ["20"])[0])
                     if not (1 <= len(term) <= 200 and 1 <= limit <= 100):
                         raise ValueError("Invalid query size or limit")
-                    stored = await load_tweets(env)
-                    if not stored.get("success"):
-                        return json_resp({"success": False, "error": "STORAGE_UNAVAILABLE"}, 503)
-                    results = search_items(stored.get("data", []), term, limit)
+                    results, backend = await recall_cloud(env, term, limit, load_tweets)
                 except (ValueError, TypeError):
                     return json_resp({"success": False, "error": "INVALID_QUERY"}, 400)
+                except RuntimeError:
+                    return json_resp({"success": False, "error": "STORAGE_UNAVAILABLE"}, 503)
                 return json_resp({
                     "success": True, "scope": "bookmarks_only",
                     "query": term, "total": len(results), "results": results,
+                    "retrieval_backend": backend,
                 }, cache_seconds=0)
 
             if path.startswith("/api/v1/items/") and method == "GET":
@@ -82,6 +85,73 @@ async def on_fetch(request, env):
                 item = next((t for t in stored.get("data", []) if str(t.get("id")) == source_id), None)
                 return json_resp({"success": True, "item": item}, cache_seconds=0) if item else json_resp(
                     {"success": False, "error": "NOT_FOUND"}, 404)
+
+            if path == "/api/v1/research" and method == "POST":
+                # 一次请求完整贯通：词法召回→逐条 Clef/Jev 判决→LLM 综合→引用交付。
+                # 不写入 DB，也不修改 Discovery 的生命周期。
+                if not CONFIG.research_enabled:
+                    return json_resp({"success": False, "error": "RESEARCH_DISABLED"}, 403)
+                try:
+                    raw = await request.text()
+                    if len(raw) > 85_000:
+                        raise ValueError("请求体过大")
+                    body = json.loads(raw)
+                    question = str(body.get("query") or "")
+                    model = str(body.get("model") or CONFIG.research_default_judge_model)
+                    limit = int(body.get("limit", 20))
+                    count = int(body.get("max_candidates", CONFIG.research_max_candidates))
+                    if not (1 <= len(question) <= 200 and 1 <= limit <= 50 and 1 <= count <= 12):
+                        raise ValueError("查询参数不合法")
+                    if model not in ("clef-flash", "clef", "jev"):
+                        raise ValueError("未知类型化模型")
+                    if model == "jev" and not CONFIG.decision_allow_jev:
+                        return json_resp({"success": False, "error": "JEV_NOT_ENABLED"}, 403)
+                    # 本地客户端可以提交自己召回的书签正文，由 Worker 提供 AI 算力。
+                    provided = body.get("sources", None)
+                    if provided is None:
+                        try:
+                            candidates, backend = await recall_cloud(env, question, limit, load_tweets)
+                        except RuntimeError:
+                            return json_resp({"success": False, "error": "STORAGE_UNAVAILABLE"}, 503)
+                        profile = "cloud_bookmarks"
+                    else:
+                        if not isinstance(provided, list) or len(provided) > 50:
+                            raise ValueError("本地候选数超过限制")
+                        bookmarks = []
+                        for source in provided:
+                            if not isinstance(source, dict) or not str(source.get("id") or ""):
+                                raise ValueError("缺少候选 ID")
+                            if len(str(source.get("body_raw") or source.get("snippet") or "")) > 9000:
+                                raise ValueError("候选正文过长")
+                            bookmarks.append({
+                                k: source.get(k) for k in (
+                                    "id", "url", "title", "author", "created_at", "category",
+                                    "sub_category", "body_raw", "snippet", "username"
+                                )
+                            })
+                        profile = "demo_seed" if body.get("profile") == "demo_seed" else "client_supplied"
+                        candidates = recall_bookmarks(bookmarks, question, limit, use_fts=False)
+                        backend = "client_candidate_recall"
+                except (ValueError, TypeError, AttributeError):
+                    return json_resp({"success": False, "error": "INVALID_RESEARCH_REQUEST"}, 400)
+                if not candidates:
+                    return json_resp({
+                        "success": True, "query": question, "profile": profile,
+                        "retrieval_backend": backend,
+                        "report": "# Xcollect 研究报告\n\n没有找到相关来源，未调用模型。\n",
+                        "analysis": "", "sources": [], "decisions": [],
+                        "stats": {"recalled": 0, "judged": 0, "accepted": 0},
+                    }, cache_seconds=0)
+                try:
+                    result = await research_with_workers_ai(
+                        env, question, candidates, decision_model=model,
+                        generation_model=CONFIG.research_generation_model,
+                        max_candidates=count, profile=profile,
+                    )
+                except Exception:
+                    return json_resp({"success": False, "error": "RESEARCH_MODEL_UNAVAILABLE"}, 503)
+                result["retrieval_backend"] = backend
+                return json_resp(result, cache_seconds=0)
 
             if path == "/api/v1/decide" and method == "POST":
                 # Opt-in prevents accidental billable inference.

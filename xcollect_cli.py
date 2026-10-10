@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -13,6 +14,8 @@ from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from src.retrieval import export_bundle, search_items
+from src.research import recall_bookmarks
+from src.research_direct import research_direct
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_FILE = str(PROJECT_ROOT / "data" / "xcollect.json")
@@ -24,7 +27,8 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def api_request(base: str, token: str, path: str, payload: dict | None = None) -> dict:
+def api_request(base: str, token: str, path: str, payload: dict | None = None,
+                timeout: int = 20) -> dict:
     if not token:
         raise ValueError("XCOLLECT_API_TOKEN is required for cloud mode")
     base = base.rstrip("/")
@@ -43,7 +47,7 @@ def api_request(base: str, token: str, path: str, payload: dict | None = None) -
         "Content-Type": "application/json",
     }, method="POST" if body is not None else "GET")
     try:
-        with build_opener(NoRedirect()).open(request, timeout=20) as response:
+        with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
             data = json.load(response)
     except HTTPError as err:
         raise RuntimeError(f"Cloud API HTTP {err.code}; check authentication and endpoint") from None
@@ -89,6 +93,96 @@ def get_item(args) -> dict:
     return api_request(args.api_base, args.token, path)["item"]
 
 
+def run_research_request(args) -> dict:
+    """CLI 只负责数据源与交付；有鉴权的 Worker 执行真实判决和生成模型。"""
+    provider = args.provider
+    if provider == "auto":
+        provider = ("worker" if args.source == "cloud" or args.token
+                    else "direct" if os.getenv("CLOUDFLARE_API_TOKEN") else "worker")
+    payload = {
+        "query": args.query, "model": args.model, "limit": args.limit,
+        "max_candidates": args.max_candidates,
+    }
+    if args.source == "local":
+        items = read_local(args.data)
+        found = recall_bookmarks(items, args.query, args.limit)
+        data_path = Path(args.data).expanduser()
+        demo = (data_path.resolve() == Path(DEFAULT_DATA_FILE).resolve()
+                and not data_path.is_file())
+        # Worker 仅处理最多 max_candidates 篇原文的有限上下文；
+        # 保存一份本机权威原文映射，报告导出时换回完整 body_raw。
+        selected_local = [x["item"] for x in found[:args.max_candidates]]
+        originals = {str(x["id"]): x for x in selected_local}
+        payload["sources"] = [
+            {**{k: x.get(k) for k in (
+                "id", "url", "title", "author", "created_at", "category",
+                "sub_category", "username", "snippet"
+            )}, "body_raw": str(x.get("body_raw") or "")[:6000]}
+            for x in selected_local
+        ]
+        payload["profile"] = "demo_seed" if demo else "local_bookmarks"
+        if provider == "direct":
+            from src.config_loader import CONFIG
+            account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+            if not account_id:
+                # 项目已知的非敏感账户编号，仍以配置文件为真源。
+                try:
+                    account_id = json.loads(
+                        (PROJECT_ROOT / "wrangler.jsonc").read_text(encoding="utf-8")
+                    ).get("account_id", "")
+                except (FileNotFoundError, json.JSONDecodeError):
+                    pass
+            return asyncio.run(research_direct(
+                args.query, found, judge_model=args.model,
+                generation_model=CONFIG.research_generation_model,
+                max_candidates=args.max_candidates, account_id=account_id,
+                cloudflare_token=os.getenv("CLOUDFLARE_API_TOKEN", ""),
+                generator=args.generator,
+                deepseek_key=CONFIG.custom_ai_api_key,
+                deepseek_base=CONFIG.custom_ai_base,
+                deepseek_model=CONFIG.custom_ai_model,
+                allow_jev=args.allow_jev, profile=payload["profile"],
+            ))
+    elif provider == "direct":
+        raise ValueError("直接 Cloudflare AI 模式目前仅支持 --source local")
+    if args.generator == "deepseek":
+        raise ValueError("--generator deepseek 须与 --provider direct 一起使用")
+    if not args.token:
+        raise ValueError(
+            "研究需要模型连接：配置 XCOLLECT_API_TOKEN（Worker），或设置 "
+            "CLOUDFLARE_API_TOKEN 后执行 --provider direct"
+        )
+    answer = api_request(args.api_base, args.token, "/api/v1/research",
+                         payload, timeout=180)
+    if args.source == "local":
+        answer["sources"] = [
+            originals.get(str(item.get("id")), item) for item in answer.get("sources", [])
+        ]
+    return answer
+
+
+def save_research_bundle(result: dict, destination: str) -> dict:
+    """研究报告与证据分层保存：报告不会覆盖或改写原文。"""
+    target = Path(destination).expanduser()
+    sources = result.get("sources", [])
+    manifest = export_bundle(sources, result["query"], target)
+    (target / "report.md").write_text(result.get("report", ""), encoding="utf-8")
+    (target / "decisions.jsonl").write_text(
+        "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in result.get("decisions", [])),
+        encoding="utf-8",
+    )
+    metadata = {
+        "schema": "xcollect.research.v1",
+        "query": result["query"], "topic": result.get("topic"),
+        "profile": result.get("profile"), "generation_model": result.get("generation_model"),
+        "stats": result.get("stats"), "result": "generated" if result.get("analysis") else "no_evidence",
+    }
+    (target / "research.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return manifest
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="xcollect", description="Read and export Xcollect's durable bookmarks")
     parser.add_argument("--source", choices=("local", "cloud"), default="local")
@@ -112,6 +206,20 @@ def build_parser() -> argparse.ArgumentParser:
     decide = sub.add_parser("decide", help="Optional Cloudflare typed evaluation, not text generation")
     decide.add_argument("id", help="ID of an already saved bookmark; only cloud mode")
     decide.add_argument("--model", choices=("clef-flash", "clef", "jev"), default="clef-flash")
+    for name in ("ask", "research"):
+        command = sub.add_parser(name, help="自然语言检索→自动 Clef/Jev 判断→LLM 证据综述")
+        command.add_argument("query", help="自然语言研究问题")
+        command.add_argument("--limit", type=int, default=20, help="初始召回数量")
+        command.add_argument("--max-candidates", type=int, default=8, help="最多调用判断模型的篇数")
+        command.add_argument("--model", choices=("clef-flash", "clef", "jev"), default="clef-flash")
+        command.add_argument("--provider", choices=("auto", "worker", "direct"), default="auto",
+                             help="AI 执行位置：Worker API 或直接 Cloudflare AI")
+        command.add_argument("--generator", choices=("workers", "deepseek"), default="workers",
+                             help="生成模型来源；DeepSeek 仅支持 direct 模式")
+        command.add_argument("--allow-jev", action="store_true",
+                             help="明确允许第三方 Jev 按量计费")
+        command.add_argument("--out", required=name == "research", help="将报告和完整来源导出到指定目录")
+        command.add_argument("--json", action="store_true", help="打印结构化研究结果")
     return parser
 
 
@@ -161,6 +269,19 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("Cloudflare decision requires --source cloud and a configured Worker")
             response = api_request(args.api_base, args.token, "/api/v1/decide", {"id": args.id, "model": args.model})
             print(json.dumps(response, ensure_ascii=False, indent=2))
+        elif args.command in ("ask", "research"):
+            if args.limit < 1 or args.max_candidates < 1:
+                raise ValueError("limit/max-candidates 必须为正整数")
+            result = run_research_request(args)
+            if args.out:
+                save_research_bundle(result, args.out)
+                print(f"研究报告已保存：{Path(args.out).expanduser() / 'report.md'}", file=sys.stderr)
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                if result.get("profile") == "demo_seed":
+                    print("注意：本次使用仓库演示数据，并非已同步的私人收藏。\n")
+                print(result.get("report", ""))
         return 0
     except (ValueError, LookupError, FileNotFoundError, RuntimeError, OSError, json.JSONDecodeError) as err:
         print(f"xcollect: {err}", file=sys.stderr)

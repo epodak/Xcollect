@@ -71,6 +71,13 @@ workers_ai_models = [
 enabled = false
 allow_jev = false
 
+# 用户显式发起 ask/research 时才会调用模型；浏览、收藏同步均不会触发。
+[research]
+enabled = true
+generation_model = "@cf/meta/llama-3.1-8b-instruct-fp8"
+default_judge_model = "clef-flash"
+max_candidates = 8
+
 [discovery]
 enabled = true
 interval_hours = 2.0

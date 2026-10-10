@@ -159,6 +159,12 @@ class AppConfig:
         self.decision_enabled = bool(decision_cfg.get("enabled", False))
         self.decision_allow_jev = bool(decision_cfg.get("allow_jev", False))
 
+        research_cfg = parsed.get("research", {})
+        self.research_enabled = bool(research_cfg.get("enabled", False))
+        self.research_generation_model = str(research_cfg.get("generation_model", ""))
+        self.research_default_judge_model = str(research_cfg.get("default_judge_model", "clef-flash"))
+        self.research_max_candidates = int(research_cfg.get("max_candidates", 8))
+
         # Discovery Plane 参数（严格来自 config.toml 单一真源）
         discovery_cfg = parsed.get("discovery", {})
         self.discovery_enabled = bool(discovery_cfg.get("enabled", True))

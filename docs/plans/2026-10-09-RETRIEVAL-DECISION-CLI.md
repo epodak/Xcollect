@@ -1,12 +1,12 @@
 # Xcollect Retrieval + Decision CLI — Execution Plan
 
-Status: In progress (2026-10-09)
+Status: E2E research implemented, offline tests passing; production acceptance pending (2026-10-09)
 Branch: `feature/retrieval-decision-cli`
 Base: `main` at `7cc31e34d893c0e94c97d544870488c618ea1e78`
 
 ## Goal
 
-Enable private, evidence-preserving access to durable bookmarks from a local CLI or authenticated Cloudflare Worker API. Add an optional Cloudflare typed decision model (Clef-flash primary, Jev optional) for *judgment*, not generative answering.
+Enable evidence-preserving bookmark research: natural language recall -> automatic Clef/Jev judgment -> generative synthesis -> terminal/Markdown/JSONL delivery. Original lexical-only slicing has been superseded by ADR-0003.
 
 ## Non-negotiable boundaries
 
@@ -27,7 +27,7 @@ Enable private, evidence-preserving access to durable bookmarks from a local CLI
 | P1 — local retrieval | Pure stdlib lexical/multilingual substring search, aliases, safe bundle export, CLI for local JSON | Unit tests: match, safe path, ID, source fidelity, exports |
 | P2 — remote read contract | Authenticated `/api/v1/search` and `/api/v1/items/:id`, no public access when token absent | Auth denial tests, bounded queries, no Discovery leakage |
 | P3 — typed decision | Optional `/api/v1/decide`, Clef-flash/Jev allowlist and bounded state | Fake AI binding tests; no billable call when unconfigured |
-| P4 — scale-up | FTS5 migration, embeddings/AI Search, MCP tool adapter, incremental mirror | Follow-up work; do not label shipped without tests |
+| P4 — scale-up | FTS5 recall, automatic model filtering, synthesized research report | Implemented with SQLite/D1 FTS5; live D1 migration and model smoke test pending. Vectorize/MCP/offline mirror remain future |
 | P5 — deployment | Access policy review, Cloudflare secrets, real data smoke test | Requires owner's production credentials and Cloudflare deployment |
 
 ## CLI command contract
@@ -63,8 +63,11 @@ Cloud API requires `XCOLLECT_API_TOKEN` and `Authorization: Bearer ...`, or expl
 - [x] P1 lexical local search, read, safe bundle export and CLI with tests.
 - [x] P2 cloud token-gated v1 read endpoints; local loopback read API.
 - [x] P3 opt-in Clef-flash/Clef/Jev typed decision code with fake-binding unit tests.
+- [x] ADR-0003 修正目标偏移：已实现 `ask` / `research` 完整召回→判决→生成→引用链路。
+- [x] 本地 SQLite FTS5 + D1 FTS5 重建/增删改迁移、Direct Cloudflare AI 与 Worker 双后端。
+- [x] 生成 `report.md`、来源 JSONL、过滤记录；模型虚构引用会被拒绝。
 - [x] PR CI: existing contracts + retrieval tests passed (including repair of time-stale Discovery fixture).
-- [ ] P4 FTS5/multilingual semantic index, AI synthesis, MCP, incremental offline mirror.
+- [ ] Vectorize、MCP 和增量镜像（不属于当前已验证实现）。
 - [ ] P5 live Worker inference and Cloudflare deployment — gated by owner secrets and Access review.
 
 ## Sources
