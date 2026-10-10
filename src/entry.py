@@ -481,6 +481,13 @@ async def on_scheduled(event, env, ctx):
             "error": "DISCOVERY_CRON_EXCEPTION",
             "message": str(err),
         }
+        try:
+            await env.DB.prepare(
+                "INSERT INTO meta_kv (key, value, updated_at) VALUES ('discovery:last_error', ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+            ).bind(str(err)).run()
+        except:
+            pass
 
     failures = []
     if bookmark_status >= 400 or not bookmark_payload.get("success"):

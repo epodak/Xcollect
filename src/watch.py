@@ -103,15 +103,23 @@ async def watch_query_plan(env, limit=2):
     ).all()).results
     if not rows:
         return []
-    # Independent round-robin cursor: the global taxonomy budget is untouched.
+    # Inline meta cursor management to avoid circular imports
     try:
-        from discovery import _meta_get, _meta_set
-    except ImportError:
-        from src.discovery import _meta_get, _meta_set
+        res = await env.DB.prepare("SELECT value FROM meta_kv WHERE key = 'watch:query_cursor'").all()
+        cursor = int(res.results[0].get("value", "0") if isinstance(res.results[0], dict) else getattr(res.results[0], "value", "0")) % len(rows) if res.results else 0
+    except Exception:
+        cursor = 0
         
-    cursor = int(await _meta_get(env,"watch:query_cursor","0") or "0") % len(rows)
     picked = [rows[(cursor+i)%len(rows)] for i in range(min(limit,len(rows)))]
-    await _meta_set(env,"watch:query_cursor",(cursor+len(picked))%len(rows))
+    
+    new_cursor = (cursor + len(picked)) % len(rows)
+    try:
+        await env.DB.prepare(
+            "INSERT INTO meta_kv (key, value, updated_at) VALUES ('watch:query_cursor', ?, datetime('now')) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+        ).bind(str(new_cursor)).run()
+    except Exception:
+        pass
     return [{"topic_id":_value(r,"topic_id"),"query":_value(r,"query"),
              "intent":_value(r,"intent"),"mode":_value(r,"mode"),
              "category":"01_人工智能与Agent","sub_category":"用户主题追踪"} for r in picked]
