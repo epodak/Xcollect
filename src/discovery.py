@@ -1291,7 +1291,8 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
     # SearchTimeline acquisition is not due yet.
     purge_meta = await purge_expired_discovery(env)
     # Watch references must never preserve expired source content.
-    await env.DB.prepare('DELETE FROM watch_candidate_matches WHERE tweet_id NOT IN (SELECT tweet_id FROM discovery_candidates)').run() if await _watch_table_exists(env) else None
+    if await _watch_table_exists(env):
+        await env.DB.prepare('DELETE FROM watch_candidate_matches WHERE tweet_id NOT IN (SELECT tweet_id FROM discovery_candidates)').run()
     current_feed_count, _ = await materialize_daily_feed(env)
 
     if not CONFIG.discovery_enabled:
