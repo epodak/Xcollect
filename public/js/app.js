@@ -49,7 +49,8 @@ function ensureImpressionObserver() {
         return;
       }
 
-      const item = tweets.find(t => String(t.id) === tweetId);
+      const item = tweets.find(t => String(t.id) === tweetId)
+        || (window.watchReaderItems || []).find(t => String(t.id) === tweetId);
       if (!isUnsavedDiscoveryItem(item) || impressionRecorded.has(tweetId)) return;
 
       impressionVisible.add(tweetId);
@@ -59,12 +60,13 @@ function ensureImpressionObserver() {
         impressionTimers.delete(tweetId);
         if (!impressionVisible.has(tweetId) || impressionRecorded.has(tweetId)) return;
 
-        const current = tweets.find(t => String(t.id) === tweetId);
+        const current = tweets.find(t => String(t.id) === tweetId)
+          || (window.watchReaderItems || []).find(t => String(t.id) === tweetId);
         if (!isUnsavedDiscoveryItem(current)) return;
 
         impressionRecorded.add(tweetId);
         recordTweetFeedback(tweetId, "impression", {
-          surface: "feed",
+          surface: card.closest("#watchResults") ? "watch" : "feed",
           rank_position: Number(card.dataset.rankPosition || 0),
           viewport_ratio: IMPRESSION_MIN_RATIO,
           visible_ms: IMPRESSION_MIN_MS
