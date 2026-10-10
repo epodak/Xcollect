@@ -897,12 +897,11 @@ async def materialize_daily_feed(env) -> tuple[int, list[dict]]:
 
         ids = [str(item.get("id", "")) for item in selected if item.get("id")]
         if ids:
-            placeholders = ",".join("?" for _ in ids)
             await env.DB.prepare(
-                f"UPDATE discovery_candidates SET state = 'selected' "
-                f"WHERE tweet_id IN ({placeholders}) "
+                "UPDATE discovery_candidates SET state = 'selected' "
+                "WHERE tweet_id IN (SELECT value FROM json_each(?)) "
                 "AND state NOT IN ('hidden','rejected','saved_pending','saved')"
-            ).bind(*ids).run()
+            ).bind(json.dumps(ids)).run()
 
     return len(selected), selected
 
