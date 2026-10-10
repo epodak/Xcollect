@@ -104,7 +104,11 @@ async def watch_query_plan(env, limit=2):
     if not rows:
         return []
     # Independent round-robin cursor: the global taxonomy budget is untouched.
-    from discovery import _meta_get, _meta_set
+    try:
+        from discovery import _meta_get, _meta_set
+    except ImportError:
+        from src.discovery import _meta_get, _meta_set
+        
     cursor = int(await _meta_get(env,"watch:query_cursor","0") or "0") % len(rows)
     picked = [rows[(cursor+i)%len(rows)] for i in range(min(limit,len(rows)))]
     await _meta_set(env,"watch:query_cursor",(cursor+len(picked))%len(rows))
@@ -121,7 +125,11 @@ async def save_matches(env, matches):
 
 async def watch_feed(env, topic_id):
     await ensure_watch_schema(env)
-    from discovery import _within_retention, _row_get, _json_obj
+    try:
+        from discovery import _within_retention, _row_get, _json_obj
+    except ImportError:
+        from src.discovery import _within_retention, _row_get, _json_obj
+        
     rs = await env.DB.prepare(
         "SELECT d.*,m.query AS matched_query FROM watch_candidate_matches m "
         "JOIN discovery_candidates d ON d.tweet_id=m.tweet_id "

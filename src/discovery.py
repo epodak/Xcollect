@@ -1323,7 +1323,11 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         }
 
     selected_queries = await select_queries_for_run(env)
-    from watch import watch_query_plan, save_matches
+    try:
+        from watch import watch_query_plan, save_matches
+    except ImportError:
+        from src.watch import watch_query_plan, save_matches
+        
     selected_queries.extend(await watch_query_plan(env, limit=2))
     if not selected_queries:
         return 400, {
