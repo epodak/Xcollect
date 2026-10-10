@@ -1,0 +1,106 @@
+name: Watch X upstream protocol
+
+on:
+  schedule:
+    # 05:17 UTC every day. GitHub scheduled runs may be delayed.
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/watch_x_upstreams.py"
+      - "scripts/upstream_sources.json"
+      - "tests/test_watch_x_upstreams.py"
+      - ".github/workflows/upstream-watch.yml"
+      - "config.toml"
+  pull_request:
+    paths:
+      - "scripts/watch_x_upstreams.py"
+      - "scripts/upstream_sources.json"
+      - "tests/test_watch_x_upstreams.py"
+      - ".github/workflows/upstream-watch.yml"
+      - "config.toml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: xcollect-upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  upstream-watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Offline regression tests
+        run: python -m unittest discover -s tests -p "test_watch_x_upstreams.py" -v
+
+      - name: Compare upstream protocol and adapters
+        id: scan
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/watch_x_upstreams.py --output upstream-watch-report.json
+
+      - name: Retain audit report
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-protocol-watch
+          path: upstream-watch-report.json
+          retention-days: 30
+
+      - name: Open/update or resolve a single drift issue
+        if: github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('upstream-watch-report.json', 'utf8'));
+            const title = '[upstream-watch] X GraphQL protocol drift';
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100
+            });
+            const openIssue = issues.find(i => !i.pull_request && i.title === title);
+            const rows = [...report.alerts, ...report.errors];
+            const lines = [
+              'Automated read-only upstream check. **Do not copy new IDs to production without review.**',
+              '',
+              ...rows.map(x => '- ' + x),
+              '',
+              'Watched sources:',
+              ...report.sources.map(s =>
+                '- ' + s.url + ' — ' +
+                (s.error ? 'ERROR: ' + s.error : s.changed ? 'changed' : 'unchanged')
+              ),
+              '',
+              'To resolve: inspect upstream changes, run tests and a separate authorized X write/read-back smoke test,',
+              'update the adapter if required, then update the reviewed SHAs in `scripts/upstream_sources.json`.',
+              'The next clean watch run will close this issue.',
+              '',
+              'Workflow: ' + context.serverUrl + '/' + owner + '/' + repo +
+                '/actions/workflows/upstream-watch.yml'
+            ];
+            const body = lines.join('\n').slice(0, 60000);
+            if (report.needs_review) {
+              if (openIssue) {
+                if (openIssue.body !== body) await github.rest.issues.update({
+                  owner, repo, issue_number: openIssue.number, body
+                });
+              } else {
+                await github.rest.issues.create({owner, repo, title, body});
+              }
+            } else if (openIssue) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: openIssue.number,
+                state: 'closed', state_reason: 'completed'
+              });
+            }
