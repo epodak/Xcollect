@@ -175,6 +175,7 @@ function setFeedScope(newScope) {
   const main = document.querySelector("main.content-area");
   const workspace = document.getElementById("watchWorkspace");
   if (main) main.classList.toggle("watch-active", newScope === "watch");
+  document.body.classList.toggle("watch-mode", newScope === "watch");
   if (workspace) workspace.hidden = newScope !== "watch";
   if (newScope === "watch") {
     if (sentinelObserver) { sentinelObserver.disconnect(); sentinelObserver = null; }
