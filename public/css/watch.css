@@ -160,3 +160,14 @@ main.content-area.watch-active .watch-workspace { display: block; }
   .watch-title-mark { display: none; }
   .watch-results-controls select { max-width: 110px; }
 }
+/* Scope-level layout: the old taxonomy sidebar does not apply to user-intent research. */
+@media (min-width: 901px) {
+  body.watch-mode .app-layout { grid-template-columns: minmax(0, 1fr); }
+  body.watch-mode .app-layout > aside.sidebar { display: none; }
+  body.watch-mode main.content-area { max-width: 1530px; width: 100%; margin: 0 auto; }
+}
+@media (max-width: 900px) {
+  body.watch-mode main.content-area { max-width: 920px; }
+  body.watch-mode .mobile-category-bar,
+  body.watch-mode #openDrawerBtn { display: none !important; }
+}
