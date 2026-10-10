@@ -155,6 +155,10 @@ class AppConfig:
         self.custom_ai_model = str(ai_cfg.get("custom_model", "deepseek-chat"))
         self.workers_ai_models = list(ai_cfg.get("workers_ai_models", []))
 
+        decision_cfg = parsed.get("decision", {})
+        self.decision_enabled = bool(decision_cfg.get("enabled", False))
+        self.decision_allow_jev = bool(decision_cfg.get("allow_jev", False))
+
         # Discovery Plane 参数（严格来自 config.toml 单一真源）
         discovery_cfg = parsed.get("discovery", {})
         self.discovery_enabled = bool(discovery_cfg.get("enabled", True))
