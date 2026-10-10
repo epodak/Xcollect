@@ -57,7 +57,15 @@ def api_request(base: str, token: str, path: str, payload: dict | None = None) -
 def read_local(path: str) -> list[dict]:
     file = Path(path).expanduser()
     if not file.is_file():
-        raise FileNotFoundError(f"Bookmark file not found: {file}; synchronize Local Profile first")
+        # 若为默认数据路径且尚未同步，优雅降级为仓库已有种子数据
+        if file.resolve() == Path(DEFAULT_DATA_FILE).resolve():
+            fallback = PROJECT_ROOT / "scripts" / "seed_data.json"
+            if fallback.is_file():
+                file = fallback
+            else:
+                raise FileNotFoundError(f"Bookmark file not found: {file}; synchronize Local Profile first")
+        else:
+            raise FileNotFoundError(f"Bookmark file not found: {file}")
     data = json.loads(file.read_text(encoding="utf-8-sig"))
     if not isinstance(data, list):
         raise ValueError("Bookmark JSON must be a list")
@@ -85,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="xcollect", description="Read and export Xcollect's durable bookmarks")
     parser.add_argument("--source", choices=("local", "cloud"), default="local")
     parser.add_argument("--data", default=os.getenv("XCOLLECT_DATA", DEFAULT_DATA_FILE), help="Local profile JSON (default: <checkout>/data/xcollect.json; override with XCOLLECT_DATA)")
-    parser.add_argument("--api-base", default=os.getenv("XCOLLECT_API_BASE", ""), help="HTTPS Worker base URL")
+    parser.add_argument("--api-base", default=os.getenv("XCOLLECT_API_BASE", "https://x.daduiot.com"), help="HTTPS Worker base URL")
     parser.add_argument("--token", default=os.getenv("XCOLLECT_API_TOKEN", ""), help="Cloud bearer token; prefer environment")
     sub = parser.add_subparsers(dest="command", required=True)
     doctor = sub.add_parser("doctor", help="Inspect local setup without reading private tokens")

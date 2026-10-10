@@ -85,24 +85,25 @@ data/xcollect.json
 
 ## 🔎 CLI：直接检索、阅读和导出已收藏推文
 
-可选：在仓库目录运行 `python -m pip install -e .`，安装后可直接输入 `xcollect search "JEV"`。
+在仓库目录运行 `python -m pip install -e .` 安装后，可直接在终端中敲 `xcollect`（或使用系统全局快捷命令 `xc`）：
 
 ```bash
-# Local Profile：完全离线，不需要 Cloudflare 或 AI Key
-python -m xcollect_cli search "Opus 5.5"
-python -m xcollect_cli search "JEV" --json
-python -m xcollect_cli read <tweet-id>
-python -m xcollect_cli export "Grok Bot" --out exports/grok-bot
+# 本地自检：查看当前书签数据与运行环境
+xcollect doctor
+
+# Local Profile 检索与阅读（完全离线，不需要 Cloudflare 或 AI Key）
+xcollect search "Opus 5.5"
+xcollect search "JEV" --json
+xcollect read <tweet-id>
+xcollect export "Grok Bot" --out exports/grok-bot
 
 # Cloud Profile：通过受保护 API 查询，不向本地 CLI 分发 D1 管理凭据
 export XCOLLECT_API_BASE="https://your-protected-domain"
 export XCOLLECT_API_TOKEN="your-private-api-token"
-python -m xcollect_cli --source cloud search "Opus 5.5"
+xcollect --source cloud search "Opus 5.5"
 ```
 
 CLI 只检索 **durable bookmarks**，不会把随时间淘汰的 Discovery 热点当成收藏。当前实现为关键词和显式别名检索；真正的语义索引、自动研究报告和 MCP 属于后续阶段。Cloud API 需要配置专用 Worker Secret，Jev/Clef 判断只允许显式调用且默认关闭。
-
-Windows 本机的 `tool-wrap` 可以将此 CLI 注册为全局 `xcollect` / `xc` 命令（同时支持 Git Bash 和 CMD），无需移动源码。操作见 [tool-wrap 集成指南](./docs/engineering/TOOL_WRAP_INTEGRATION.md)。
 
 详细说明：[CLI / 私有 API / Decision Engine](./docs/engineering/RETRIEVAL_CLI.md) · [ADR-0002](./docs/decisions/ADR-0002-RETRIEVAL-AND-TYPED-DECISION.md) · [执行计划](./docs/plans/2026-10-09-RETRIEVAL-DECISION-CLI.md)。
 

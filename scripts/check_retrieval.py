@@ -70,8 +70,8 @@ class RetrievalTests(unittest.TestCase):
             self.assertEqual(rows[0]["body_raw"], EXAMPLE[0]["body_raw"])
             self.assertEqual((dest / "manifest.json").read_text().count("bookmarks_only"), 1)
 
-    def test_global_wrapper_resolves_data_from_checkout_and_redacts_secrets(self):
-        # tool-wrap runs xcollect_cli.py by absolute path from arbitrary shell CWD.
+    def test_cli_resolves_data_from_checkout_and_redacts_secrets(self):
+        # Runs xcollect_cli.py by absolute path from arbitrary shell CWD.
         with tempfile.TemporaryDirectory() as folder:
             environment = dict(__import__("os").environ)
             environment["XCOLLECT_API_BASE"] = "https://private.example"
