@@ -5,8 +5,8 @@ import json
 import urllib.parse
 import hmac
 
-from src.retrieval import search_items
-from src.decision import evaluate_bookmark
+from retrieval import search_items
+from decision import evaluate_bookmark
 
 from config_loader import CONFIG
 from twitter import call_x_bookmark_api
