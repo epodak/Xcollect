@@ -85,6 +85,8 @@ data/xcollect.json
 
 ## 🔎 CLI：直接检索、阅读和导出已收藏推文
 
+可选：在仓库目录运行 `python -m pip install -e .`，安装后可直接输入 `xcollect search "JEV"`。
+
 ```bash
 # Local Profile：完全离线，不需要 Cloudflare 或 AI Key
 python -m xcollect_cli search "Opus 5.5"
