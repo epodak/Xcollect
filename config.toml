@@ -66,6 +66,11 @@ workers_ai_models = [
   "@cf/meta/llama-3.2-1b-instruct"
 ]
 
+# Explicit opt-in: decision models incur Workers AI / third-party charges.
+[decision]
+enabled = false
+allow_jev = false
+
 [discovery]
 enabled = true
 interval_hours = 2.0
