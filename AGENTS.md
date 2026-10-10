@@ -47,9 +47,9 @@
 
 
 8. **Canonical content invariant.**
-   - Cards are previews; the detail reader must not simply enlarge the card snippet.
+   - Feed cards are readable projections: prefer canonical `body_raw`, show ordinary posts directly, and allow in-place expansion for long documents. The detail reader remains an optional structured reading surface.
    - Source adapters normalize the richest available content at ingestion time: X Article -> Note Tweet -> legacy full_text.
-   - `snippet` is for preview/search; `body_raw` is the canonical reader source.
+   - `snippet` is for search and legacy fallback; `body_raw` is the canonical text source for both feed cards and the detail reader. Never substitute the 140-character snippet when a complete body is present.
    - Full reconciliation may refresh source-owned content for existing IDs so parser upgrades can repair historical records without overwriting Xcollect semantic enrichment.
    - Do not claim full thread reconstruction until the conversation graph has actually been fetched and normalized.
    - See `docs/engineering/CONTENT_NORMALIZATION.md`.

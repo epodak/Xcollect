@@ -2,19 +2,21 @@
 
 ## Product contract
 
-Xcollect has two different presentation surfaces and they must not collapse into the same thing:
+Xcollect has two complementary presentation surfaces. Users should be able to read an ordinary X post *without opening a modal*:
 
 ```text
-Card
-= Preview / Projection
-= title + short snippet + media preview
+Feed Card
+= readable canonical projection
+= metadata + body_raw + media
+= short/ordinary post displayed completely
+= very long document initially height-collapsed, expandable in place
 
-Modal / Reader
-= Canonical Document View
-= source content normalized at ingestion time + local structured rendering
+Optional Modal / Reader
+= structured canonical document
+= focused reading, evidence, copy/export, media and source context
 ```
 
-A modal that only enlarges the same 140-character snippet has no product value and violates this contract.
+Never stretch a 140-character `snippet` into a large fixed-height box. Feed cards use `body_raw` when available and show a visible incomplete-source warning when only `snippet` remains. A modal that only enlarges an incomplete 140-character snippet is not a substitute for ingestion normalization.
 
 ## Canonical source precedence
 
@@ -126,3 +128,15 @@ This should be an enrichment step, not something silently inferred from missing 
 Do not display `snippet` as the primary Modal body when a richer `body_raw` can be collected.
 
 `snippet` exists for cards/search previews. `body_raw` is the canonical reader source.
+
+
+## Feed card reading contract (2026-10-10)
+
+- Normal short/medium X posts: render all of `body_raw` in place, preserving paragraphs, Markdown structure and safe URLs.
+- Very long posts: source is still complete in the DOM; the initial visual region is height-limited and `展开全文` expands in the same card, without navigating or replacing the feed state.
+- If a generated title is only the leading prefix of the body, hide that duplicate title instead of rendering the first sentence twice.
+- CSS must not force `min-height: 420px`, equal-height stretching, or mobile three-line snippet clipping on canonical card content.
+- Only a user-chosen reading-mode action opens the detail reader; opening the original uses X without assuming a bookmark.
+- Explicit inline expansion is an `open_detail` reading signal with `surface=feed_inline`, never a terminal bookmark event.
+- A `body_raw` gap is a source-quality issue; no front-end treatment may claim to reconstruct missing tweet/thread text.
+- Regression check: `node scripts/check_feed_card_reading.mjs` (part of `pnpm run check`).
