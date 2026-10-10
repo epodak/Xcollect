@@ -8,7 +8,7 @@
 
     .tweets-container.grid-view {
       grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-      align-items: stretch; /* 核心：整行卡片严格等高拉伸对齐，杜绝错落狗啃感 */
+      align-items: start; /* Feed 内容优先，各卡片按实际正文高度排列 */
     }
 
     .tweets-container.compact-view {
@@ -31,8 +31,8 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      height: 100%; /* 填满单元格拉伸高度，整行绝对等高 */
-      min-height: 420px; /* 统一等高基准高度，保持视觉秩序感 */
+      height: auto; /* 不将短内容强行拉满 */
+      min-height: 0; /* 短推文自然收缩，消除大片空白 */
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
       transition: border-color 0.22s ease, box-shadow 0.25s ease, background-color 0.2s ease;
       position: relative;
@@ -248,7 +248,7 @@
       line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
-      min-height: 2.85em; /* 统一标题两行高度，避免一行标题造成高低晃动 */
+      min-height: 0; /* 标题不占无内容的固定两行 */
       margin-bottom: 0.45rem;
     }
 
@@ -668,3 +668,109 @@
     }
 
 
+
+
+/* Canonical-first feed card: 原文是主内容，阅读器只是可选的深度工具。
+   已保存的 body_raw 不应因 snippet/line-clamp/等高卡片而被截断。 */
+.tweet-card .card-title.is-repeated {
+  display: none; /* 标题是正文第一句话的重复截取时，不再大字显示两遍 */
+}
+
+.tweet-card .card-readable {
+  min-width: 0;
+  margin-bottom: 0.75rem;
+}
+
+.tweet-card .card-readable-content {
+  color: rgb(var(--c-fg));
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.tweet-card .card-readable .canonical-prose {
+  font-size: 0.94rem;
+  line-height: 1.68;
+  color: rgb(var(--c-fg));
+}
+
+.tweet-card .card-readable .canonical-prose p {
+  margin: 0 0 0.65rem;
+}
+
+.tweet-card .card-readable .canonical-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.tweet-card .card-readable .canonical-prose h1,
+.tweet-card .card-readable .canonical-prose h2,
+.tweet-card .card-readable .canonical-prose h3 {
+  font-size: 1.02rem;
+  line-height: 1.5;
+  margin: 0.6rem 0 0.4rem;
+  font-weight: 600;
+}
+
+.tweet-card .card-readable .canonical-prose pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.tweet-card .card-readable.is-collapsible:not(.is-expanded) .card-readable-content {
+  max-height: 26rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.tweet-card .card-readable.is-collapsible:not(.is-expanded) .card-readable-content::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3.5rem;
+  background: linear-gradient(transparent, rgb(var(--c-surface)));
+  pointer-events: none;
+}
+
+.tweet-card .card-reading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 0.45rem;
+}
+
+.tweet-card .card-reading-actions button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: rgb(var(--c-brand-bright));
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.35rem 0;
+  text-align: left;
+}
+
+.tweet-card .card-reading-actions button:hover {
+  text-decoration: underline;
+}
+
+.tweet-card .card-reading-actions .card-reader-link {
+  margin-left: auto;
+  color: rgb(var(--c-fg-subtle));
+}
+
+.tweet-card .card-source-warning {
+  font-size: 0.73rem;
+  color: rgb(var(--c-fg-subtle));
+  margin-top: 0.4rem;
+}
+
+@media (max-width: 900px) {
+  .tweet-card .card-readable .canonical-prose {
+    font-size: 0.93rem;
+    line-height: 1.64;
+  }
+  .tweet-card .card-title { font-size: 0.92rem; }
+}
