@@ -1,0 +1,91 @@
+name: Topic Watch production audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/watch-production-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare production Wrangler binding
+        env:
+          WRANGLER_JSONC: ${{ secrets.WRANGLER_JSONC }}
+        run: |
+          if [ -n "$WRANGLER_JSONC" ]; then
+            printf "%s" "$WRANGLER_JSONC" > wrangler.jsonc
+          else
+            cp wrangler.example.jsonc wrangler.jsonc
+          fi
+      - name: Read-only D1 health probe (no user content)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+
+          def execute(sql):
+              p = subprocess.run(
+                  ["pnpm", "exec", "wrangler", "d1", "execute", "x-bookmarks",
+                   "--remote", "--json", "--command", sql],
+                  text=True, capture_output=True, timeout=90,
+              )
+              if p.returncode != 0:
+                  # Keep provider errors out of public workflow logs; could
+                  # contain private context. Report the status category only.
+                  raise RuntimeError("D1 read-only query failed (exit " + str(p.returncode) + ")")
+              obj = json.loads(p.stdout)
+              if not isinstance(obj, list):
+                  obj = [obj]
+              return [row for block in obj for row in (block.get("results") or [])]
+
+          wanted = ("watch_topics", "watch_queries", "watch_candidate_matches",
+                    "discovery_candidates", "meta_kv")
+          found = {row["name"] for row in execute(
+              "SELECT name FROM sqlite_master WHERE type='table' "
+              "AND name IN (" + ",".join("'" + t + "'" for t in wanted) + ")"
+          )}
+          for table in wanted:
+              print("table", table, "present" if table in found else "MISSING")
+              if table in found:
+                  rows = execute("SELECT COUNT(*) AS total FROM " + table)
+                  print("  rows", rows[0]["total"] if rows else "unknown")
+
+          if "watch_topics" in found:
+              rows = execute("SELECT COUNT(*) AS total FROM watch_topics WHERE state='active'")
+              print("active_watches", rows[0]["total"] if rows else "unknown")
+          if "meta_kv" in found:
+              rows = execute(
+                  "SELECT key,updated_at,"
+                  "CASE WHEN key='watch:last_run_summary' "
+                  "THEN json_extract(value,'$.state') ELSE NULL END AS state,"
+                  "CASE WHEN key='watch:last_run_summary' "
+                  "THEN json_extract(value,'$.total_queries') ELSE NULL END AS query_count,"
+                  "CASE WHEN key='watch:last_run_summary' "
+                  "THEN json_extract(value,'$.successful_queries') ELSE NULL END AS successful_queries "
+                  "FROM meta_kv WHERE key IN "
+                  "('watch:last_attempt_at','watch:last_success_at',"
+                  "'watch:last_run_summary','discovery:last_run_at','discovery:last_error')"
+              )
+              for row in rows:
+                  # No raw query strings, tweet IDs, error messages or secrets.
+                  print("meta", row["key"], row["updated_at"],
+                        "state", row.get("state"),
+                        "queries", row.get("query_count"),
+                        "successful", row.get("successful_queries"))
+          PY
