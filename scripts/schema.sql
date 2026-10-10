@@ -139,3 +139,9 @@ CREATE INDEX IF NOT EXISTS idx_discovery_runs_state
     ON discovery_runs (state, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_discovery_runs_date
     ON discovery_runs (discovery_date, updated_at DESC);
+
+-- Persistent Topic Watch intent; candidates retain the Discovery 24h TTL.
+CREATE TABLE IF NOT EXISTS watch_topics (id TEXT PRIMARY KEY, title TEXT NOT NULL, intent TEXT NOT NULL, directions_json TEXT NOT NULL DEFAULT '[]', mode TEXT NOT NULL DEFAULT 'balanced', state TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS watch_queries (topic_id TEXT NOT NULL, query TEXT NOT NULL, PRIMARY KEY(topic_id,query));
+CREATE TABLE IF NOT EXISTS watch_candidate_matches (topic_id TEXT NOT NULL, tweet_id TEXT NOT NULL, query TEXT NOT NULL, matched_at TEXT NOT NULL, PRIMARY KEY(topic_id,tweet_id));
+CREATE INDEX IF NOT EXISTS idx_watch_match_tweet ON watch_candidate_matches(tweet_id);
