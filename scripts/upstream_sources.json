@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "description": "Reviewed upstream source-file baselines. Changes trigger an issue; IDs are not automatically deployed.",
+  "files": [
+    {
+      "repo": "fa0311/twitter-openapi",
+      "branch": "main",
+      "path": "src/config/placeholder.json",
+      "sha": "1d0ba0b86a832b7cbb232b68505300d09eac4521",
+      "role": "graphql_registry"
+    },
+    {
+      "repo": "fa0311/twitter-openapi",
+      "branch": "main",
+      "path": "src/openapi/paths/bookmarks.yaml",
+      "sha": "e68734c3934eab6f8cafd433c76039dd87c0ea8b",
+      "role": "schema"
+    },
+    {
+      "repo": "sytelus/xarchive",
+      "branch": "main",
+      "path": "lib/query-ids.js",
+      "sha": "e1aecf6380110dc6e20e115f58b67250566d186e",
+      "role": "capture"
+    },
+    {
+      "repo": "sytelus/xarchive",
+      "branch": "main",
+      "path": "lib/api.js",
+      "sha": "d98bc98846f615b83f8f6e11beded1398c5ffbfd",
+      "role": "headers"
+    },
+    {
+      "repo": "0x1b2c/twitter-bookmarks-downloader",
+      "branch": "master",
+      "path": "sync-bookmarks.user.js",
+      "sha": "e211a094aa0cab220a83417fb3cb06534fd96716",
+      "role": "route_and_capture"
+    }
+  ]
+}
