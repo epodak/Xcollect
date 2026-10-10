@@ -16,6 +16,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from src.retrieval import export_bundle, search_items
 from src.research import recall_bookmarks
 from src.research_direct import research_direct
+from src.config_loader import CONFIG
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_FILE = str(PROJECT_ROOT / "data" / "xcollect.json")
@@ -96,9 +97,10 @@ def get_item(args) -> dict:
 def run_research_request(args) -> dict:
     """CLI 只负责数据源与交付；有鉴权的 Worker 执行真实判决和生成模型。"""
     provider = args.provider
+    cf_token = os.getenv("CLOUDFLARE_API_TOKEN") or CONFIG.cloudflare_api_token
     if provider == "auto":
         provider = ("worker" if args.source == "cloud" or args.token
-                    else "direct" if os.getenv("CLOUDFLARE_API_TOKEN") else "worker")
+                    else "direct" if cf_token else "worker")
     payload = {
         "query": args.query, "model": args.model, "limit": args.limit,
         "max_candidates": args.max_candidates,
@@ -122,8 +124,7 @@ def run_research_request(args) -> dict:
         ]
         payload["profile"] = "demo_seed" if demo else "local_bookmarks"
         if provider == "direct":
-            from src.config_loader import CONFIG
-            account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+            account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID") or CONFIG.cloudflare_account_id
             if not account_id:
                 # 项目已知的非敏感账户编号，仍以配置文件为真源。
                 try:
@@ -136,7 +137,7 @@ def run_research_request(args) -> dict:
                 args.query, found, judge_model=args.model,
                 generation_model=CONFIG.research_generation_model,
                 max_candidates=args.max_candidates, account_id=account_id,
-                cloudflare_token=os.getenv("CLOUDFLARE_API_TOKEN", ""),
+                cloudflare_token=cf_token,
                 generator=args.generator,
                 deepseek_key=CONFIG.custom_ai_api_key,
                 deepseek_base=CONFIG.custom_ai_base,

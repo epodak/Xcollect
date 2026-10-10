@@ -305,6 +305,9 @@ class AppConfig:
         self.x_auth_token = os.environ.get("X_AUTH_TOKEN", "")
         self.x_ct0 = os.environ.get("X_CT0", "")
         self.custom_ai_api_key = os.environ.get("CUSTOM_AI_API_KEY", "")
+        self.cloudflare_api_token = os.environ.get("CLOUDFLARE_API_TOKEN") or os.environ.get("CLOUDFLARE_FORAI_API_TOKEN", "")
+        self.cloudflare_account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID") or os.environ.get("CLOUDFLARE_FORAI_ACCOUNT_ID", "")
+        self.xcollect_api_token = os.environ.get("XCOLLECT_API_TOKEN", "")
 
         if ENV_PATH.exists():
             try:
@@ -321,8 +324,21 @@ class AppConfig:
                                 self.x_ct0 = v
                             elif k == "CUSTOM_AI_API_KEY" and not self.custom_ai_api_key:
                                 self.custom_ai_api_key = v
+                            elif k in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_FORAI_API_TOKEN") and not self.cloudflare_api_token:
+                                self.cloudflare_api_token = v
+                            elif k in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_FORAI_ACCOUNT_ID") and not self.cloudflare_account_id:
+                                self.cloudflare_account_id = v
+                            elif k == "XCOLLECT_API_TOKEN" and not self.xcollect_api_token:
+                                self.xcollect_api_token = v
             except Exception:
                 pass
+
+        if self.cloudflare_api_token and "CLOUDFLARE_API_TOKEN" not in os.environ:
+            os.environ["CLOUDFLARE_API_TOKEN"] = self.cloudflare_api_token
+        if self.cloudflare_account_id and "CLOUDFLARE_ACCOUNT_ID" not in os.environ:
+            os.environ["CLOUDFLARE_ACCOUNT_ID"] = self.cloudflare_account_id
+        if self.xcollect_api_token and "XCOLLECT_API_TOKEN" not in os.environ:
+            os.environ["XCOLLECT_API_TOKEN"] = self.xcollect_api_token
 
 
 # 全局单例配置实例
