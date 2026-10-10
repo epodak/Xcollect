@@ -89,13 +89,6 @@ window.observeTweetImpressions = function(container) {
   });
 };
 
-const UNBOOKMARKED_KEY = "twitter_curated_unbookmarked_ids_v1";
-var unbookmarkedIds = new Set(JSON.parse(localStorage.getItem(UNBOOKMARKED_KEY) || "[]"));
-
-function saveUnbookmarked() {
-  localStorage.setItem(UNBOOKMARKED_KEY, JSON.stringify(Array.from(unbookmarkedIds)));
-}
-
 // 核心数据流视角: "discovery" (相关热点发现) | "bookmarks" (我的书签知识库) | "all" (全部)
 var activeFeedScope = "discovery";
 var currentScopeTotal = 0;
@@ -117,7 +110,7 @@ function isCurrentBookmarkItem(item) {
     item.is_bookmark === true ||
     item.source_kind === "bookmark" ||
     item.discovery_state === "saved";
-  return durableBookmark && !unbookmarkedIds.has(String(item.id));
+  return durableBookmark;
 }
 
 function updateVisibleCountBadge() {
@@ -759,7 +752,7 @@ function setupEventListeners() {
           }
 
           if (res.success) {
-            showToast("𝕏 凭证配置成功！已开启双向真实书签操作");
+            showToast("𝕏 凭证配置成功！已启用书签读取与热点发现");
             closeAuthModal();
             await checkAuthStatus();
           } else {
@@ -1196,102 +1189,8 @@ window.rejectDiscoveryCandidate = async function(tweetId) {
   }
 };
 
-window.toggleXBookmark = async function(tweetId) {
-      if (!isXConfigured) {
-        openAuthModal();
-        showToast("请先在右上角配置 𝕏 凭证 (auth_token 与 ct0)", false);
-        return;
-      }
-
-      const btn = document.getElementById(`btn-toggle-${tweetId}`);
-      if (btn) btn.disabled = true;
-      const feedbackItem = tweets.find(t => String(t.id) === String(tweetId));
-      const isDiscoveryCandidate = isUnsavedDiscoveryItem(feedbackItem);
-      const currentlySaved = isCurrentBookmarkItem(feedbackItem);
-      const action = currentlySaved ? "delete" : "create";
-
-      try {
-        const resp = await fetch("/api/bookmark/toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tweet_id: tweetId,
-            action: action,
-            source_kind: feedbackItem ? (feedbackItem.source_kind || "bookmark") : "bookmark"
-          })
-        });
-        const result = await resp.json();
-
-        if (result.success) {
-          if (action === "delete") {
-            unbookmarkedIds.add(tweetId);
-            // 同步从当前页面内存列表中剔除
-            tweets = tweets.filter(t => String(t.id) !== String(tweetId));
-            window.tweets = tweets;
-            try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
-            showToast(`已成功从 𝕏 云端移出书签并从 D1 数据库移除 #${tweetId}`);
-          } else {
-            unbookmarkedIds.delete(tweetId);
-            const promotionState = String(result.promotion_state || "saved");
-            if (feedbackItem) {
-              if (isDiscoveryCandidate && promotionState === "saved_pending") {
-                // X 已接受收藏，但 Durable Bookmark 还没有被同步回读确认。
-                // 该候选立即离开 Inbox，但不会虚构成“我的书签 +1”。
-                feedbackItem.source_kind = "discovery";
-                feedbackItem.is_bookmark = false;
-                feedbackItem.discovery_state = "saved_pending";
-              } else {
-                feedbackItem.source_kind = "bookmark";
-                feedbackItem.is_bookmark = true;
-                feedbackItem.discovery_state = "saved";
-              }
-            }
-            try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
-            if (isDiscoveryCandidate && promotionState === "saved_pending") {
-              showToast("已收藏到 𝕏；正在等待书签同步确认，确认后会进入「我的书签」");
-            } else {
-              showToast(
-                isDiscoveryCandidate
-                  ? `已收藏并确认进入「我的书签」 #${tweetId}`
-                  : `已成功重新添加至 𝕏 云端书签 #${tweetId}`
-              );
-            }
-          }
-          saveUnbookmarked();
-          recordTweetFeedback(tweetId, action === "delete" ? "unbookmark" : "bookmark", {
-            surface: currentOpenTweet && currentOpenTweet.id === tweetId ? "reader" : "feed",
-            category: feedbackItem ? (feedbackItem.category || "") : "",
-            sub_category: feedbackItem ? (feedbackItem.sub_category || "") : "",
-            username: feedbackItem ? (feedbackItem.username || "") : "",
-            author: feedbackItem ? (feedbackItem.author || "") : ""
-          });
-
-          // 同步作用域计数器与各分类文章计数
-          const counts = updateFeedScopeCounts();
-          const brandSub = document.querySelector(".brand-sub");
-          if (brandSub) {
-            brandSub.textContent = `Curated Knowledge Portal · ${counts.bookmarksCount} 篇书签 · ${counts.discoveryCount} 篇发现`;
-          }
-          renderCategories();
-          applyFiltersAndRender(false);
-
-          if (currentOpenTweet && currentOpenTweet.id === tweetId) {
-            updateModalBookmarkBtn();
-          }
-        } else {
-          showToast(result.message || "X 平台接口同步失败", false);
-        }
-      } catch (err) {
-        showToast("与本地后台服务通信异常: " + err, false);
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    };
-
 // 挂载核心交互函数至全局 window
 window.tweets = tweets;
-window.unbookmarkedIds = unbookmarkedIds;
-window.saveUnbookmarked = saveUnbookmarked;
 window.getTheme = getTheme;
 window.updateThemeToggleUI = updateThemeToggleUI;
 window.toggleTheme = toggleTheme;

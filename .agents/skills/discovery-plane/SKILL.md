@@ -42,11 +42,10 @@ selected
 shown
   ├─ corner × false positive ───────→ rejected
   ├─ “不想看这类” preference ──────→ hidden
-  └─ bookmark ──────────────────────→ saved_pending
-                                           ↓
-                                  bookmark sync/read-back
-                                           ↓
-                                         saved
+  └─ real X Bookmark observed after sync/readback ───→ saved
+
+Legacy external write API (not linked from Discovery UI):
+  CreateBookmark accepted → saved_pending → X sync/read-back → saved
 ```
 
 Never count `saved_pending` as a durable bookmark.
@@ -94,25 +93,35 @@ cheap deterministic guard
 AI judge
 ```
 
-## Bookmark promotion transaction
+## Verified bookmark conversion
 
-A Discovery save is not complete when the X CreateBookmark request succeeds.
+Discovery presents exactly three footer actions: Copy, Not Interested and Original.
+The separate card corner × is false-positive rejection, not semantic dislike.
+The reader exposes Not Interested only while displaying Discovery material.
 
-Required transaction:
+The user's X bookmark action occurs on x.com or its app, not in xcollect.
+Opening the original creates only `open_original` engagement. It is never
+assumed to mean the user bookmarked.
+
+Required evidence path:
 
 ```text
-X save accepted
+User bookmarks directly on X
    ↓
-saved_pending
+X Bookmarks authenticated sync returns Tweet ID
    ↓
-bookmark sync
+tweets D1 persistence + read-back confirms ID
    ↓
-tweets read-back contains ID
+Join to non-expired Discovery candidate / legacy saved_pending
    ↓
-saved
+append one bookmark training signal (by Tweet ID/action)
+   ↓
+candidate state = saved
 ```
 
-The UI may say “waiting for sync confirmation” while pending, but must not fabricate a bookmark count or durable state.
+Client `/api/feedback` must refuse self-declared bookmark/unbookmark labels.
+Legacy `saved_pending` may remain until sync but must never be shown as a
+confirmed bookmark. Never promote on an HTTP click alone.
 
 ## UI projection rules
 

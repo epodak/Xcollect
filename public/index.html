@@ -393,7 +393,7 @@
 
       <div class="modal-body">
         <p style="font-size: 0.85rem; color: rgb(var(--c-fg-muted)); margin-bottom: 1.2rem;">
-          Local Profile 会把凭证保存在本机 <code>.env</code>；Personal Cloud 使用 Cloudflare Worker Secrets。凭证用于 X GraphQL 的书签读取以及支持的添加 / 删除操作，请勿提交到公开仓库。
+          Local Profile 会把凭证保存在本机 <code>.env</code>；Personal Cloud 使用 Cloudflare Worker Secrets。凭证用于 X 书签读取与热点发现；本页面不再调用 X 书签添加或删除操作，请勿提交到公开仓库。
         </p>
 
         <div class="form-group">
@@ -414,7 +414,7 @@
           🔒 Local: .env · Cloud: Worker Secrets
         </div>
         <button class="btn-auth authed" id="btnSaveCredentials">
-          <span>保存凭证并启用双向同步</span>
+          <span>保存凭证并启用 X 读取同步</span>
         </button>
       </div>
     </div>
@@ -453,8 +453,8 @@
             </svg>
             <span>复制 Markdown</span>
           </button>
-          <button class="btn-action btn-bookmark" id="modalToggleBookmark">
-            <span>⭐ 同步 X 书签状态</span>
+          <button type="button" class="btn-action btn-dismiss" id="modalDismissDiscovery" style="display:none" title="减少类似话题或作者的推荐">
+            <span>⊘ 不想看这类</span>
           </button>
           <a class="btn-action btn-twitter" id="modalTwitterLink" href="#" target="_blank">
             <span>在 𝕏 / Twitter 打开 ↗</span>

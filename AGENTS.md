@@ -62,8 +62,9 @@
    - Discovery freshness is a rolling UTC source-time invariant, not a calendar-day bucket. Any non-durable candidate whose source post is >= 24h old must be absent from the feed and physically deleted together with its ephemeral feedback evidence.
    - Discovery jobs must be resumable/idempotent and should apply freshness/reply/spam/promo/NSFW gates before expensive AI inference.
    - Search/Discovery source failure must never corrupt or delete bookmark-plane data; the two Cron jobs may report a composite failure but execute independently.
-   - A discovery candidate may enter `tweets` only through an explicit bookmark/save action followed by bookmark synchronization.
-   - Promotion is two-phase: explicit save -> `saved_pending` -> bookmark sync/read-back -> `saved`. UI must not count `saved_pending` as a durable bookmark.
+   - Discovery cards expose Copy / Not Interested / Original, plus a separate corner × for false positives; neither card nor reader sends X bookmark mutations.
+   - A discovery candidate enters `tweets` only when X Bookmarks Sync returns it and persistence is confirmed. The legacy `saved_pending` route is not a user-interface action.
+   - Only successful X membership readback, paired with eligible Discovery provenance, produces terminal `bookmark` learning events. The browser feedback route must reject self-reported bookmark events.
    - Human policy defines action semantics, sign and ordinal order only; learned behavior defines magnitude. Do not encode hand-written ratios such as +1/+10/+50 as recommendation truth. Positive order is detail/open < copy < open-original < bookmark; false-positive `×` remains Discovery-quality only; “不想看这类” remains semantic preference only.
    - Discovery rejection has two orthogonal meanings:
      - card-corner `×` = false positive / wrong candidate; remove it from Discovery without lowering topic/author preference, while feeding Discovery quality learning;

@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 app = (ROOT / "public" / "js" / "app.js").read_text(encoding="utf-8")
 render = (ROOT / "public" / "js" / "render.js").read_text(encoding="utf-8")
+html = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
 entry = (ROOT / "src" / "entry.py").read_text(encoding="utf-8")
 discovery = (ROOT / "src" / "discovery.py").read_text(encoding="utf-8")
 preferences = (ROOT / "src" / "preferences.py").read_text(encoding="utf-8")
@@ -41,12 +42,20 @@ assert "update_action_calibration" in learning
 assert "strongest surviving semantic action" in preferences
 assert "+1/+10/+50" not in preferences
 
-# Candidate promotion is two-phase: X accepts -> pending -> bookmark sync -> durable saved.
-assert '"saved_pending"' in app
-assert 'set_candidate_state(env, tweet_id, "saved_pending")' in entry
-assert 'trigger="bookmark-create"' in entry
+# No X mutations from the feed or reader; sync confirms real conversions.
+assert "toggleXBookmark" not in app
+assert "btn-toggle-" not in render
+assert "modalToggleBookmark" not in render
+assert "modalToggleBookmark" not in html
+assert 'id="modalDismissDiscovery"' in html
+assert "CreateBookmark" not in app
+assert "modalDismissDiscovery" in render
+assert "open_original" in render
+assert "reconcile_verified_discovery_bookmarks" in sync_service
+assert "eligible_confirmed_discovery_rows" in discovery
+assert 'event_id="x_verified_bookmark:" + tweet_id' in discovery
+assert "BOOKMARK_FEEDBACK_SYNC_ONLY" in entry
 assert "reconcile_candidate_promotions" in sync_service
-assert "'saved_pending'" in discovery
 
 # Rolling freshness is a hard retention boundary, not a calendar-day UI filter.
 assert "async def purge_expired_discovery" in discovery
