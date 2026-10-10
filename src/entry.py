@@ -50,7 +50,7 @@ except ImportError:
 
 
 @worker_handler
-async def on_fetch(request, env):
+async def on_fetch(request, env, ctx=None):
     """Worker 边缘请求处理入口。"""
     try:
         url = urllib.parse.urlparse(request.url)
