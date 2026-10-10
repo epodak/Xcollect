@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from config_loader import CONFIG
 from src.ranking import enrich_related_hot_many
 from src.preferences import apply_preference_profile
+from src.retrieval import search_items
 
 BASE_DIR = Path(__file__).resolve().parent
 SERVE_DIR = str(BASE_DIR / "public")
@@ -881,6 +882,44 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
                 "storage_profile": "local",
                 "message": "Local Profile 在本机进程运行期间按需同步；Cloud Cron 仅属于 Personal Cloud Profile。"
             }, ensure_ascii=False).encode("utf-8"))
+            return
+
+        # Read-only v1 API shared with the CLI retrieval contract.
+        # This local profile is designed to bind loopback (127.0.0.1).
+        if parsed.path == "/api/v1/search":
+            try:
+                params = urllib.parse.parse_qs(parsed.query)
+                query_text = str(params.get("q", [""])[0] or "")
+                limit = int(params.get("limit", ["20"])[0])
+                if not (1 <= len(query_text) <= 200 and 1 <= limit <= 100):
+                    raise ValueError("Invalid query")
+                results = search_items(load_local_tweets(), query_text, limit)
+                status, payload = 200, {
+                    "success": True, "scope": "bookmarks_only", "query": query_text,
+                    "total": len(results), "results": results,
+                }
+            except (ValueError, TypeError):
+                status, payload = 400, {"success": False, "error": "INVALID_QUERY"}
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            return
+
+        if parsed.path.startswith("/api/v1/items/"):
+            source_id = urllib.parse.unquote(parsed.path[len("/api/v1/items/"):])
+            if not source_id or "/" in source_id or len(source_id) > 200:
+                status, payload = 400, {"success": False, "error": "INVALID_ID"}
+            else:
+                item = next((item for item in load_local_tweets() if str(item.get("id")) == source_id), None)
+                status, payload = (200, {"success": True, "item": item}) if item else (
+                    404, {"success": False, "error": "NOT_FOUND"})
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
             return
 
         if parsed.path == "/api/tweets":
