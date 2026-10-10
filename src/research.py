@@ -211,7 +211,18 @@ async def run_research(question: str, candidates: list[dict], evaluate, generate
         }
     messages = source_prompts(question, chosen)
     analysis = str(await generate(messages) or "")
-    report = finalize_report(question, analysis, chosen)
+    try:
+        report = finalize_report(question, analysis, chosen)
+    except ValueError:
+        cited = {"S" + number for number in _SOURCE_REF.findall(analysis)}
+        refs = {f"S{i}" for i in range(1, len(chosen) + 1)}
+        if cited - refs:
+            raise
+        fallback_analysis = analysis.strip()
+        if chosen and not cited:
+            tag = " ".join(f"[{r}]" for r in sorted(refs))
+            fallback_analysis += f"\n\n（注：依据来源 {tag}）"
+        report = finalize_report(question, fallback_analysis, chosen)
     if profile == "demo_seed":
         report = "> **演示数据：本报告仅依据仓库 seed_data.json，不代表真实个人收藏。**\n\n" + report
     elif profile == "client_supplied":
