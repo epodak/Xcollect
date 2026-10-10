@@ -276,7 +276,8 @@ Candidate states are expected to evolve through:
 ```text
 candidate → rejected                 # AI gate or explicit card-corner × false-positive reject
 candidate → selected → shown
-selected → saved_pending → saved     # explicit X save, then bookmark sync/read-back confirmation
+selected → saved                      # X bookmarks sync plus D1 readback confirmation
+selected → saved_pending → saved     # compatibility with legacy API write flow
 selected → hidden                    # “不想看这类” semantic preference action
 ```
 
@@ -285,7 +286,7 @@ The two negative exits are intentionally not equivalent:
 - `rejected` means “this item should not have entered Discovery”. It trains source/query/gate quality and must not lower topic/sub-category/author preference.
 - `hidden` means “I do not want more content like this”. It remains a semantic preference signal.
 
-Likewise, `saved_pending` is not a bookmark. It only means X accepted the save request. The item becomes a durable bookmark after the bookmark plane synchronizes it into `tweets` and read-back confirms the ID.
+Likewise, `saved_pending` is not a bookmark and only exists for legacy write API compatibility. Discovery exposes Copy, Not Interested, and Original (plus the independent false-positive ×). `open_original` remains weaker positive interest; it is not proof of a saved X bookmark. A terminal `bookmark` feedback event must come from an X Bookmarks fetch followed by D1 persistence and ID readback. Only a live Discovery candidate or legacy pending record may be attributed. Unconfirmed candidates still expire after 24 hours.
 
 ### daily_feed
 
@@ -391,3 +392,11 @@ Still pending:
 ## Maintenance contract
 
 Future agents changing this subsystem should use `.agents/skills/discovery-plane/SKILL.md` as the operational playbook. The architectural invariant remains in `AGENTS.md`, while executable regressions are locked by `scripts/check_discovery.py`, `scripts/check_feed_contract.py`, and `scripts/check_related_hot.py`.
+
+## Topic Watch: explicit user research intent
+
+A Watch is a **durable search policy**, not a taxonomy node and not a saved discovery candidate. Its `title`, `intent`, optional `directions`, state, and generated query seeds persist in D1. Watch queries use a separate round-robin budget of two queries per eligible Discovery cycle; the existing global query budget is unchanged. Watch matches live in `watch_candidate_matches` (many-to-many) and point at the shared ephemeral `discovery_candidates` source record.
+
+The Watch API is `GET/POST /api/watch`, `POST /api/watch/state` (active/paused), and `GET /api/watch/feed?id=<topic_id>`. Existing Cloudflare Access protection applies. Results enforce the same rolling source-time TTL, never materialize permanent copies, and never count as X bookmarks. Expired candidate references are cleaned during Discovery GC. Bookmark authority remains `tweets` after X sync.
+
+Current v1 limits: query expansion is deterministic and keyword-based; personalized semantic intent scoring and model-generated query expansion remain future work. The Watch feed ranks its own matched candidates independently of Global Discovery's 300-item daily selection, while reusing candidate quality scores and rejection state. No background source poll starts from page load.

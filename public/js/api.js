@@ -51,20 +51,6 @@ const api = {
     return await resp.json();
   },
 
-  // X 书签添加/移除切换
-  async toggleBookmark(tweetId, action, sourceKind = "bookmark") {
-    const resp = await fetch("/api/bookmark/toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tweet_id: String(tweetId || ""),
-        action: action,
-        source_kind: sourceKind
-      })
-    });
-    return await resp.json();
-  },
-
   // 从 X 线上书签同步；POST 表达“远端读取 + 本地持久化”的副作用
   async syncBookmarks() {
     const resp = await fetch("/api/bookmarks/sync", {
@@ -85,6 +71,10 @@ const api = {
 
   // 记录训练信号。失败时进入浏览器小型待重试队列，不阻塞主交互。
   async recordFeedback(tweetId, action, context = {}) {
+    // The X Bookmark timeline, not a browser click, owns terminal labels.
+    if (action === "bookmark" || action === "unbookmark") {
+      return { success: false, skipped: true, reason: "x_sync_only" };
+    }
     const eventId = (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function")
       ? globalThis.crypto.randomUUID()
       : `fb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -130,8 +120,11 @@ const api = {
     }
     if (!Array.isArray(queued) || queued.length === 0) return { flushed: 0 };
 
-    const batch = queued.slice(0, 25);
-    const remaining = queued.slice(25);
+    // Old browser builds could enqueue synthetic bookmark feedback. Drop it;
+    // retrying those events would fabricate conversions after the policy switch.
+    const eligible = queued.filter(item => item && item.action !== "bookmark" && item.action !== "unbookmark");
+    const batch = eligible.slice(0, 25);
+    const remaining = eligible.slice(25);
     let flushed = 0;
     for (const payload of batch) {
       try {
@@ -157,6 +150,26 @@ const api = {
     const resp = await fetch("/api/discovery/status", { cache: "no-store" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.json();
+  },
+
+  async getWatches() {
+    const r = await fetch("/api/watch", {cache:"no-store"});
+    return await r.json();
+  },
+
+  async createWatch(topic) {
+    const r = await fetch("/api/watch", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(topic)});
+    return {ok:r.ok,data:await r.json()};
+  },
+
+  async setWatchState(id,state) {
+    const r = await fetch("/api/watch/state", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,state})});
+    return {ok:r.ok,data:await r.json()};
+  },
+
+  async getWatchFeed(id) {
+    const r = await fetch("/api/watch/feed?id="+encodeURIComponent(id),{cache:"no-store"});
+    return {ok:r.ok,data:await r.json()};
   },
 
   async runDiscovery() {
