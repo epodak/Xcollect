@@ -10,6 +10,8 @@ app = (ROOT / "public" / "js" / "app.js").read_text(encoding="utf-8")
 render = (ROOT / "public" / "js" / "render.js").read_text(encoding="utf-8")
 html = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
 entry = (ROOT / "src" / "entry.py").read_text(encoding="utf-8")
+assert ("@worker_handler" + chr(10) + "async def on_scheduled") in entry
+assert "asyncio.gather(bookmark_job(), discovery_job())" in entry
 discovery = (ROOT / "src" / "discovery.py").read_text(encoding="utf-8")
 preferences = (ROOT / "src" / "preferences.py").read_text(encoding="utf-8")
 learning = (ROOT / "src" / "learning.py").read_text(encoding="utf-8")
