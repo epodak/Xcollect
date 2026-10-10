@@ -1089,6 +1089,12 @@ class CuratedPortalHandler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(length)
             try:
                 data = json.loads(body.decode("utf-8"))
+                if str(data.get("action", "")) in ("bookmark", "unbookmark"):
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": False, "error": "BOOKMARK_FEEDBACK_SYNC_ONLY"}).encode("utf-8"))
+                    return
                 ok, msg, event = append_local_feedback(
                     data.get("event_id", ""),
                     data.get("tweet_id", ""),

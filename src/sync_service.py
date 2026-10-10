@@ -23,7 +23,7 @@ from storage import (
     save_sync_status,
     save_tweets,
 )
-from discovery import reconcile_candidate_promotions
+from discovery import reconcile_candidate_promotions, reconcile_verified_discovery_bookmarks
 
 
 def _utc_now_iso():
@@ -227,6 +227,18 @@ async def perform_cloud_sync(env, trigger: str = "manual", force_reconcile: bool
         )
         return 500, payload
 
+    # X has returned these IDs and the canonical D1 repository has read them back.
+    # Keep learning failures separate from bookmark persistence success.
+    try:
+        verified_discovery_feedback = await reconcile_verified_discovery_bookmarks(
+            env, [str(item.get("id")) for item in pulled if item.get("id")]
+        )
+    except Exception as feedback_error:
+        verified_discovery_feedback = {
+            "confirmed": 0, "already_recorded": 0,
+            "errors": [str(feedback_error)[:180]],
+        }
+
     completed_at = _utc_now_iso()
     removed_count = int(reconciliation.get("removed_count", 0) or 0)
     reconcile_suffix = ""
@@ -250,6 +262,7 @@ async def perform_cloud_sync(env, trigger: str = "manual", force_reconcile: bool
         "pulled_count": len(pulled),
         "new_count": fetch_meta.get("discovered_new_count", storage_meta.get("d1_written", 0)),
         "promoted_candidates": promoted_candidates,
+        "verified_discovery_bookmarks": verified_discovery_feedback,
         "removed_count": removed_count,
         "reconciliation": reconciliation,
         "fetch": fetch_meta,

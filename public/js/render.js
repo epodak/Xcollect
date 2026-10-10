@@ -232,7 +232,6 @@ function generateTweetCardHtml(item, idx = 0) {
   const isDiscovery = item.source_kind === "discovery"
     && item.is_bookmark !== true
     && !["saved", "saved_pending", "hidden", "rejected"].includes(discoveryState);
-  const isSavedOnX = !isDiscovery && discoveryState !== "saved_pending" && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
   const rawSubcat = (item.sub_category || "").trim();
   const displaySubcat = (rawSubcat.includes("/") ? rawSubcat.split("/").pop().trim() : rawSubcat) || (item.category || "").replace(/^\d+_/, "");
   const isBadgeActive = (window.activeSubCategory !== "ALL" && (window.activeSubCategory === rawSubcat || window.activeSubCategory === displaySubcat));
@@ -325,9 +324,6 @@ function generateTweetCardHtml(item, idx = 0) {
               <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
             </svg>
             <span>复制</span>
-          </button>
-          <button class="btn-action btn-bookmark ${isSavedOnX ? 'saved' : 'unbookmarked'}" id="btn-toggle-${tweetId}" onclick="event.stopPropagation(); toggleXBookmark('${tweetId}')" title="${isDiscovery ? '收藏这条发现内容到 X' : (isSavedOnX ? '已收藏在 X，点击从云端移除' : '已从 X 移除，点击恢复收藏')}">
-            <span>${isSavedOnX ? '★ 移出' : '☆ 收藏'}</span>
           </button>
           ${isDiscovery ? `<button type="button" class="btn-action btn-dismiss" onclick="event.stopPropagation(); dismissDiscovery('${tweetId}')" title="不想看这类内容：会降低相似话题/作者的后续推荐权重"><span>⊘ 不想看这类</span></button>` : ""}
           <a class="btn-action btn-twitter" href="${item.url || 'https://x.com'}" target="_blank" rel="noopener noreferrer" onclick="if(window.recordTweetFeedback){window.recordTweetFeedback('${tweetId}', 'open_original', {surface:'feed'});}" title="前往 Twitter 页面查看或管理原推">
@@ -439,29 +435,6 @@ function renderSentinel(container, hasMore, currentCount, totalCount) {
   }
 }
 
-function updateModalBookmarkBtn() {
-  if (!window.currentOpenTweet) return;
-  const tweetId = window.currentOpenTweet.id;
-  const state = String(window.currentOpenTweet.discovery_state || "");
-  const isPending = state === "saved_pending";
-  const isDiscovery = window.currentOpenTweet.source_kind === "discovery"
-    && window.currentOpenTweet.is_bookmark !== true
-    && !["saved", "saved_pending", "hidden", "rejected"].includes(state);
-  const isSaved = !isDiscovery && !isPending && !(window.unbookmarkedIds && window.unbookmarkedIds.has(tweetId));
-  const btn = document.getElementById("modalToggleBookmark");
-  if (btn) {
-    if (isPending) {
-      btn.className = "btn-action btn-bookmark unbookmarked";
-      btn.disabled = true;
-      btn.innerHTML = "<span>⏳ 已收藏，等待书签同步确认</span>";
-      return;
-    }
-    btn.disabled = false;
-    btn.className = `btn-action btn-bookmark ${isSaved ? 'saved' : 'unbookmarked'}`;
-    btn.innerHTML = `<span>${isSaved ? '★ 从 𝕏 云端移出书签' : (isDiscovery ? '☆ 收藏到 𝕏' : '☆ 恢复添加到 𝕏 书签')}</span>`;
-  }
-}
-
 // 打开 Canonical Document 阅读器
 window.openDetail = function(tweetId) {
   const tweet = window.tweets && window.tweets.find(t => t.id === tweetId || t.filename === tweetId);
@@ -507,8 +480,15 @@ window.openDetail = function(tweetId) {
     }
   };
 
-  updateModalBookmarkBtn();
-  document.getElementById("modalToggleBookmark").onclick = () => window.toggleXBookmark(tweetId);
+  // Opening X is engagement, never a claimed bookmark conversion.
+  const modalDismiss = document.getElementById("modalDismissDiscovery");
+  if (modalDismiss) {
+    modalDismiss.style.display = tweet.source_kind === "discovery" && tweet.is_bookmark !== true ? "" : "none";
+    modalDismiss.onclick = () => {
+      closeModal();
+      if (typeof window.dismissDiscovery === "function") window.dismissDiscovery(tweetId);
+    };
+  }
 
   const bodyContainer = document.getElementById("modalBody");
   let bodyHtml = "";
@@ -707,7 +687,7 @@ function closeAuthModal() {
 }
 
 function exportBookmarks() {
-  const activeBookmarks = (window.tweets || []).filter(t => t.source_kind !== "discovery" && t.is_bookmark !== false && !(window.unbookmarkedIds && window.unbookmarkedIds.has(t.id)));
+  const activeBookmarks = (window.tweets || []).filter(t => t.source_kind !== "discovery" && t.is_bookmark !== false );
   const blob = new Blob([JSON.stringify(activeBookmarks, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -732,7 +712,6 @@ window.renderTweetsBatch = renderTweetsBatch;
 window.renderSentinel = renderSentinel;
 window.parseMarkdownToHtml = parseMarkdownToHtml;
 window.showToast = showToast;
-window.updateModalBookmarkBtn = updateModalBookmarkBtn;
 window.closeModal = closeModal;
 window.openAuthModal = openAuthModal;
 window.closeAuthModal = closeAuthModal;
