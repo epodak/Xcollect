@@ -1,6 +1,6 @@
 # Xcollect CLI — Local Retrieval and Optional Cloudflare Decisions
 
-Feature branch: `feature/retrieval-decision-cli`. Minimum Python 3.10, no external Python dependencies.
+Feature branch: `feature/retrieval-decision-cli`. Minimum Python 3.10, no external runtime Python dependencies. Optional install: `python -m pip install -e .` exposes the `xcollect` executable; then `xcollect search "JEV"` works with `--data` pointing at your synchronized JSON.
 
 ## Local CLI (does not need Cloudflare)
 
