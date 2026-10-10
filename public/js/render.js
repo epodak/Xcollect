@@ -177,8 +177,10 @@ async function writeTextToClipboard(text) {
 }
 
 async function copyTweetMarkdown(tweetId, button = null) {
-  const tweet = window.tweets && window.tweets.find(
-    item => item.id === tweetId || item.filename === tweetId
+  const tweet = (window.tweets || []).find(
+    item => String(item.id) === String(tweetId) || item.filename === tweetId
+  ) || (window.watchReaderItems || []).find(
+    item => String(item.id) === String(tweetId) || item.filename === tweetId
   );
   if (!tweet) {
     showToast("未找到这条推文，无法复制", false);
@@ -437,7 +439,8 @@ function renderSentinel(container, hasMore, currentCount, totalCount) {
 
 // 打开 Canonical Document 阅读器
 window.openDetail = function(tweetId) {
-  const tweet = window.tweets && window.tweets.find(t => t.id === tweetId || t.filename === tweetId);
+  const tweet = (window.tweets || []).find(t => String(t.id) === String(tweetId) || t.filename === tweetId)
+    || (window.watchReaderItems || []).find(t => String(t.id) === String(tweetId) || t.filename === tweetId);
   if (!tweet) return;
   window.currentOpenTweet = tweet;
   if (typeof window.recordTweetFeedback === "function") {

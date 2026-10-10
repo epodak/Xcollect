@@ -49,7 +49,8 @@ function ensureImpressionObserver() {
         return;
       }
 
-      const item = tweets.find(t => String(t.id) === tweetId);
+      const item = tweets.find(t => String(t.id) === tweetId)
+        || (window.watchReaderItems || []).find(t => String(t.id) === tweetId);
       if (!isUnsavedDiscoveryItem(item) || impressionRecorded.has(tweetId)) return;
 
       impressionVisible.add(tweetId);
@@ -59,12 +60,13 @@ function ensureImpressionObserver() {
         impressionTimers.delete(tweetId);
         if (!impressionVisible.has(tweetId) || impressionRecorded.has(tweetId)) return;
 
-        const current = tweets.find(t => String(t.id) === tweetId);
+        const current = tweets.find(t => String(t.id) === tweetId)
+          || (window.watchReaderItems || []).find(t => String(t.id) === tweetId);
         if (!isUnsavedDiscoveryItem(current)) return;
 
         impressionRecorded.add(tweetId);
         recordTweetFeedback(tweetId, "impression", {
-          surface: "feed",
+          surface: card.closest("#watchResults") ? "watch" : "feed",
           rank_position: Number(card.dataset.rankPosition || 0),
           viewport_ratio: IMPRESSION_MIN_RATIO,
           visible_ms: IMPRESSION_MIN_MS
@@ -89,7 +91,7 @@ window.observeTweetImpressions = function(container) {
   });
 };
 
-// 核心数据流视角: "discovery" (相关热点发现) | "bookmarks" (我的书签知识库) | "all" (全部)
+// 三个 Feed 投影 + 一个持久研究意图视图 (watch 不改变数据归属)
 var activeFeedScope = "discovery";
 var currentScopeTotal = 0;
 
@@ -119,7 +121,10 @@ function updateVisibleCountBadge() {
   let scopeLabel = "篇";
   if (activeFeedScope === "discovery") scopeLabel = "篇 · 相关热点发现";
   else if (activeFeedScope === "bookmarks") scopeLabel = "篇 · 我的书签";
-  else scopeLabel = "篇 · 全部汇总";
+  else if (activeFeedScope === "watch") {
+    visibleBadge.textContent = "主动探寻 · " + Number(window.watchTopicCount || 0) + " 个研究主题";
+    return;
+  } else scopeLabel = "篇 · 全部汇总";
   visibleBadge.textContent = `显示 ${currentFilteredList.length} / ${currentScopeTotal} ${scopeLabel}`;
 }
 
@@ -169,6 +174,17 @@ function setFeedScope(newScope) {
     if (sortSelect) sortSelect.value = "related_hot_desc";
   }
   updateFeedScopeUI();
+  const main = document.querySelector("main.content-area");
+  const workspace = document.getElementById("watchWorkspace");
+  if (main) main.classList.toggle("watch-active", newScope === "watch");
+  document.body.classList.toggle("watch-mode", newScope === "watch");
+  if (workspace) workspace.hidden = newScope !== "watch";
+  if (newScope === "watch") {
+    if (sentinelObserver) { sentinelObserver.disconnect(); sentinelObserver = null; }
+    updateVisibleCountBadge();
+    window.dispatchEvent(new CustomEvent("xcollect:watch-open"));
+    return;
+  }
   renderCategories();
   applyFiltersAndRender(true);
 }
@@ -931,6 +947,10 @@ function setupEventListeners() {
  * 过滤与排序核心管线（计算出当前匹配的所有推文集合）
  */
 function applyFiltersAndRender(resetScroll = true) {
+  if (activeFeedScope === "watch") {
+    updateVisibleCountBadge();
+    return; // The research workbench owns its own projection and local filters.
+  }
   let activeScopeTotal = 0;
   (tweets || []).forEach(item => {
     const isCurrentlyBookmarked = isCurrentBookmarkItem(item);
@@ -1116,7 +1136,8 @@ function setupInfiniteScroll() {
 }
 
 window.dismissDiscovery = async function(tweetId) {
-  const item = tweets.find(t => String(t.id) === String(tweetId));
+  const item = tweets.find(t => String(t.id) === String(tweetId))
+    || (window.watchReaderItems || []).find(t => String(t.id) === String(tweetId));
   if (!item || item.source_kind !== "discovery") return;
 
   try {
@@ -1134,6 +1155,7 @@ window.dismissDiscovery = async function(tweetId) {
       author: item.author || ""
     });
 
+    if (typeof window.watchDropItem === "function") window.watchDropItem(String(tweetId));
     tweets = tweets.filter(t => String(t.id) !== String(tweetId));
     window.tweets = tweets;
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}
@@ -1151,7 +1173,8 @@ window.dismissDiscovery = async function(tweetId) {
 };
 
 window.rejectDiscoveryCandidate = async function(tweetId) {
-  const item = tweets.find(t => String(t.id) === String(tweetId));
+  const item = tweets.find(t => String(t.id) === String(tweetId))
+    || (window.watchReaderItems || []).find(t => String(t.id) === String(tweetId));
   if (!isUnsavedDiscoveryItem(item)) return;
 
   try {
@@ -1172,6 +1195,7 @@ window.rejectDiscoveryCandidate = async function(tweetId) {
       reply_to_username: item.reply_to_username || ""
     });
 
+    if (typeof window.watchDropItem === "function") window.watchDropItem(String(tweetId));
     tweets = tweets.filter(t => String(t.id) !== String(tweetId));
     window.tweets = tweets;
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(tweets)); } catch (e) {}

@@ -417,3 +417,20 @@ filtered by Discovery's 24-hour/quality gates.
 A direct local `wrangler deploy` does not update main. Production deployment
 must be reconciled through the merged commit and main branch CI/CD, otherwise
 the next main push may overwrite a locally deployed feature branch.
+
+## Active Research workspace presentation
+
+See `docs/decisions/ADR-0007-ACTIVE-RESEARCH-WORKSPACE.md`.
+
+The user enters Active Research via its peer-level navigation tab rather than
+an inline toolbar form. The research question persists in the Watch definition;
+source evidence remains ephemeral and governed by the same 24-hour freshness
+rule. The workspace uses an intent rail plus a canonical tweet card/result
+reader. It does not materialize a new durable bookmark, invent a semantic
+classification or equate opening the original with an X bookmark.
+
+Watch result sort `综合质量` uses the existing shared quality score; it is
+**not** a watch-intent-conditioned relevance model. The actual keyword query
+that produced a result can be inspected via a collapsed evidence section.
+The status strip explicitly distinguishes a query that has not been polled in
+the latest round-robin batch from a queried/failed or queried/zero-result batch.

@@ -25,19 +25,7 @@
   <link rel="stylesheet" href="/css/cards.css">
   <link rel="stylesheet" href="/css/modal.css">
 
-<style>
-#watchPanel{margin:12px 0;padding:16px;border:1px solid rgb(var(--c-border, 100 100 100));border-radius:12px;background:rgb(var(--c-bg, 25 25 25));}
-#watchPanel[hidden]{display:none}
-#watchPanel input[type=text],#watchPanel textarea{width:100%;box-sizing:border-box;padding:10px;margin:5px 0 10px;border-radius:8px;border:1px solid #808080;background:transparent;color:inherit;font:inherit}
-#watchPanel .watch-directions{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
-#watchPanel .watch-directions label{font-size:.85rem}
-#watchList{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-.topic-watch-chip,.topic-watch-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.topic-watch-result{padding:12px;margin:10px 0;border:1px solid #7776;border-radius:10px}
-.topic-watch-result h4{font-size:1rem;margin:0 0 8px}
-.topic-watch-result p{font-size:.9rem;line-height:1.6;white-space:pre-wrap}
-.topic-watch-actions{margin-top:8px}
-</style>
+<link rel="stylesheet" href="/css/watch.css">
 </head>
 <body>
 
@@ -169,6 +157,10 @@
                 <span class="scope-text">相关热点</span>
                 <span class="scope-badge" id="discoveryScopeCount">0</span>
               </button>
+              <button class="feed-scope-tab" data-scope="watch" id="scopeBtnWatch" role="tab" aria-selected="false" aria-controls="watchWorkspace" title="我主动设定的研究主题与持续发现">
+                <span class="scope-icon">⌕</span><span class="scope-text">主动探寻</span>
+                <span class="scope-badge" id="watchScopeCount">0</span>
+              </button>
               <button class="feed-scope-tab" data-scope="bookmarks" id="scopeBtnBookmarks" role="tab" aria-selected="false" title="你在 X 中已收藏的持久知识库">
                 <span class="scope-icon">⭐</span>
                 <span class="scope-text">我的书签</span>
@@ -182,28 +174,6 @@
             </div>
           </div>
 
-          <button type="button" class="btn-action" id="btnWatch" aria-controls="watchPanel">主题追踪</button>
-<div id="watchPanel" hidden>
-  <h3>Topic Watch · 定向发现</h3>
-  <p>输入研究对象和研究意图，系统会在后续 Discovery 调度中搜索新帖。未收藏推文仍遵守 24 小时过期规则。</p>
-  <form id="watchCreate">
-    <label for="watchTitle">研究对象</label>
-    <input type="text" id="watchTitle" placeholder="例如 Claude Opus 5.5" minlength="2" maxlength="100" required>
-    <label for="watchIntent">我想了解什么？</label>
-    <textarea id="watchIntent" placeholder="例如：开发者利用它构建的真实应用及开源项目" minlength="4" maxlength="500" required></textarea>
-    <div class="watch-directions">
-      <label><input type="checkbox" name="watchDirection" value="实际应用" checked>实际应用</label>
-      <label><input type="checkbox" name="watchDirection" value="开源项目" checked>开源项目</label>
-      <label><input type="checkbox" name="watchDirection" value="技术演示">技术演示</label>
-      <label><input type="checkbox" name="watchDirection" value="测评比较">测评比较</label>
-      <label><input type="checkbox" name="watchDirection" value="行业观点">行业观点</label>
-    </div>
-    <button class="btn-action" type="submit">创建追踪</button>
-  </form>
-  <div id="watchNotice" role="status"></div>
-  <div id="watchList"></div>
-  <div id="watchResults"></div>
-</div>
 <div class="control-divider"></div>
 
           <div class="sort-pills-wrap">
@@ -259,6 +229,72 @@
           </div>
         </div>
       </div>
+
+      <!-- 持久的研究意图工作台：不改变 Discovery / Bookmarks 的数据归属 -->
+      <section id="watchWorkspace" class="watch-workspace" hidden aria-labelledby="watchWorkspaceTitle">
+        <div class="watch-hero">
+          <div class="watch-hero-copy">
+            <span class="watch-eyebrow">INTENT-DRIVEN DISCOVERY · 主动研究</span>
+            <h1 id="watchWorkspaceTitle">主动探寻<span class="watch-title-mark"> / Research</span></h1>
+            <p>你提出问题，系统持续寻找线索。研究意图长期保留；尚未收藏的推文线索遵守 24 小时新鲜窗口。</p>
+          </div>
+          <button type="button" class="watch-primary-button" id="watchCreateToggle" aria-expanded="false" aria-controls="watchCreatePanel">＋ 新建研究主题</button>
+        </div>
+        <div class="watch-create-panel" id="watchCreatePanel" hidden>
+          <div class="watch-create-heading">
+            <div><strong>定义一个研究任务</strong><p>先说你研究什么、真正想知道什么，而不只是输入搜索关键词。</p></div>
+            <button type="button" class="watch-close-button" id="watchCreateClose" aria-label="关闭创建表单">×</button>
+          </div>
+          <form id="watchCreate" class="watch-create-form">
+            <label for="watchTitle">研究对象</label>
+            <input type="text" id="watchTitle" placeholder="例如：Claude Opus 5.5" minlength="2" maxlength="100" required>
+            <label for="watchIntent">我想解决的问题</label>
+            <textarea id="watchIntent" rows="3" placeholder="例如：开发者用它做出了哪些真实产品？有哪些可复用的开源实现？" minlength="4" maxlength="500" required></textarea>
+            <fieldset class="watch-direction-fieldset">
+              <legend>重点探索方向（可多选）</legend>
+              <div class="watch-directions">
+                <label><input type="checkbox" name="watchDirection" value="实际应用" checked>实际应用</label>
+                <label><input type="checkbox" name="watchDirection" value="开源项目" checked>开源项目</label>
+                <label><input type="checkbox" name="watchDirection" value="技术演示">技术演示</label>
+                <label><input type="checkbox" name="watchDirection" value="测评比较">测评比较</label>
+                <label><input type="checkbox" name="watchDirection" value="行业观点">行业观点</label>
+              </div>
+            </fieldset>
+            <button class="watch-primary-button" type="submit" id="watchSubmit">开始持续探寻</button>
+          </form>
+        </div>
+        <div class="watch-notice" id="watchNotice" role="status" aria-live="polite"></div>
+        <div class="watch-workbench">
+          <aside class="watch-topics-rail" aria-label="我的研究主题">
+            <div class="watch-rail-header"><h2>研究任务</h2><span class="watch-rail-count" id="watchTopicCount">0</span></div>
+            <p class="watch-rail-desc">持续跟踪的研究意图</p>
+            <div id="watchList" class="watch-topic-list"></div>
+          </aside>
+          <section class="watch-detail" aria-labelledby="watchDetailTitle">
+            <div class="watch-detail-heading">
+              <div class="watch-detail-heading-copy">
+                <div id="watchDetailOverline" class="watch-detail-overline">SELECT A RESEARCH TOPIC</div>
+                <h2 id="watchDetailTitle">选择一个研究主题</h2>
+                <p id="watchDetailIntent" class="watch-detail-intent">在左侧选择任务，查看它持续找到的新线索。</p>
+                <div id="watchDirectionTags" class="watch-direction-tags"></div>
+              </div>
+              <button type="button" class="watch-pause-button" id="watchPause" hidden>暂停追踪</button>
+            </div>
+            <div class="watch-status-strip" id="watchStatusStrip" aria-live="polite"></div>
+            <div class="watch-results-toolbar">
+              <div class="watch-results-heading"><strong>最新线索</strong><span id="watchResultCount">0 条</span></div>
+              <div class="watch-results-controls">
+                <input type="search" id="watchSearchInput" placeholder="筛选此主题中的线索…" aria-label="筛选主题发现结果">
+                <select id="watchSort" aria-label="主题结果排序">
+                  <option value="relevance">综合质量</option><option value="newest">最新发布</option><option value="popular">最多点赞</option>
+                </select>
+              </div>
+            </div>
+            <div id="watchResults" class="tweets-container grid-view watch-results"></div>
+            <div id="watchResultEmpty" class="watch-empty" hidden></div>
+          </section>
+        </div>
+      </section>
 
       <!-- 推文卡片列表 (首屏骨架屏预占位，0ms 极速反馈防白屏) -->
       <div class="tweets-container grid-view" id="tweetsContainer">
