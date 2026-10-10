@@ -177,8 +177,10 @@ async function writeTextToClipboard(text) {
 }
 
 async function copyTweetMarkdown(tweetId, button = null) {
-  const tweet = window.tweets && window.tweets.find(
-    item => item.id === tweetId || item.filename === tweetId
+  const tweet = (window.tweets || []).find(
+    item => String(item.id) === String(tweetId) || item.filename === tweetId
+  ) || (window.watchReaderItems || []).find(
+    item => String(item.id) === String(tweetId) || item.filename === tweetId
   );
   if (!tweet) {
     showToast("未找到这条推文，无法复制", false);
