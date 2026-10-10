@@ -20,6 +20,7 @@ from src.config_loader import CONFIG
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_FILE = str(PROJECT_ROOT / "data" / "xcollect.json")
+DEFAULT_FEED_FILE = str(PROJECT_ROOT / "data" / "discovery_feed.json")
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -142,6 +143,84 @@ def list_items(args) -> list[dict]:
         if query:
             full_text = " ".join(str(item.get(k) or "") for k in (
                 "title", "author", "username", "body_raw", "snippet", "category", "sub_category"
+            )).lower()
+            if query not in full_text:
+                continue
+        filtered.append(item)
+
+    limit = getattr(args, "limit", 20)
+    if limit > 0:
+        filtered = filtered[:limit]
+    return filtered
+
+
+def pull_d1_feed(target_path: str = DEFAULT_FEED_FILE) -> list[dict]:
+    """通过 Cloudflare D1 REST API 拉取今日全网主动搜索与 AI 评判发现的精选推文。"""
+    cf_token = os.getenv("CLOUDFLARE_API_TOKEN") or CONFIG.cloudflare_api_token
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID") or CONFIG.cloudflare_account_id
+    if not cf_token or not account_id:
+        raise ValueError("拉取 Cloudflare 数据需要配置 CLOUDFLARE_API_TOKEN 与 CLOUDFLARE_ACCOUNT_ID")
+    database_id = "810111fa-45f3-4e76-aa19-446c62c1d37a"
+    try:
+        wrangler_cfg = json.loads((PROJECT_ROOT / "wrangler.jsonc").read_text(encoding="utf-8"))
+        d1_list = wrangler_cfg.get("d1_databases", [])
+        if d1_list and isinstance(d1_list, list) and d1_list[0].get("database_id"):
+            database_id = d1_list[0]["database_id"]
+    except Exception:
+        pass
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}/query"
+    sql = (
+        "SELECT d.*, f.rank AS feed_rank, f.final_score AS feed_score, f.feed_date "
+        "FROM daily_feed f "
+        "JOIN discovery_candidates d ON d.tweet_id = f.tweet_id "
+        "WHERE f.feed_date = (SELECT MAX(feed_date) FROM daily_feed) "
+        "  AND d.state NOT IN ('hidden', 'rejected', 'saved_pending', 'saved') "
+        "ORDER BY f.rank ASC"
+    )
+    req = Request(
+        url,
+        data=json.dumps({"sql": sql}).encode("utf-8"),
+        headers={"Authorization": f"Bearer {cf_token}", "Content-Type": "application/json"},
+        method="POST"
+    )
+    with build_opener(NoRedirect()).open(req, timeout=30) as resp:
+        data = json.load(resp)
+    rows = data.get("result", [{}])[0].get("results", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("Cloudflare D1 返回非预期数据结构")
+    dest = Path(target_path).expanduser()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    return rows
+
+
+def list_feed_items(args) -> list[dict]:
+    """列出今日主动发现的优质推文（支持本地缓存与自动同步）。"""
+    feed_file = Path(getattr(args, "feed_file", DEFAULT_FEED_FILE)).expanduser()
+    if getattr(args, "pull", False) or not feed_file.is_file():
+        try:
+            items = pull_d1_feed(str(feed_file))
+        except Exception as e:
+            if feed_file.is_file():
+                items = json.loads(feed_file.read_text(encoding="utf-8"))
+            else:
+                raise e
+    else:
+        items = json.loads(feed_file.read_text(encoding="utf-8"))
+
+    query = (getattr(args, "query", "") or "").strip().lower()
+    category = (getattr(args, "category", "") or "").strip().lower()
+
+    filtered = []
+    for item in items:
+        if category:
+            item_cat = str(item.get("category") or "").lower()
+            item_sub = str(item.get("sub_category") or "").lower()
+            if category not in item_cat and category not in item_sub:
+                continue
+        if query:
+            full_text = " ".join(str(item.get(k) or "") for k in (
+                "title", "author", "username", "body_raw", "snippet", "category", "sub_category", "ai_reason"
             )).lower()
             if query not in full_text:
                 continue
@@ -289,6 +368,15 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd.add_argument("--simple", action="store_true", help="紧凑单行格式 (ID 标题 链接)")
     pull_cmd = sub.add_parser("pull", help="从 Cloudflare D1 拉取最新全量书签至本地 data/xcollect.json")
     pull_cmd.add_argument("--json", action="store_true", help="JSON 格式报告拉取结果")
+    feed_cmd = sub.add_parser("feed", help="列出每日全网主动搜索与 AI 评判发现的精选推文 (Discovery)")
+    feed_cmd.add_argument("query", nargs="?", default="", help="可选关键词过滤")
+    feed_cmd.add_argument("--limit", type=int, default=20, help="最多显示条数（默认 20 条，0 为全部）")
+    feed_cmd.add_argument("--category", default="", help="按分类过滤")
+    feed_cmd.add_argument("--pull", action="store_true", help="强制从 Cloudflare D1 刷新今日发现流")
+    feed_cmd.add_argument("--feed-file", default=DEFAULT_FEED_FILE, help="本地发现流缓存路径")
+    feed_cmd.add_argument("--json", action="store_true", help="输出完整原始 JSON 数组")
+    feed_cmd.add_argument("--full", action="store_true", help="输出包含正文全文与 AI 判决理由的 Markdown 卡片")
+    feed_cmd.add_argument("--simple", action="store_true", help="紧凑单行格式 (ID 标题 链接)")
     return parser
 
 
@@ -404,6 +492,64 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"success": True, "count": len(rows), "path": str(args.data)}, ensure_ascii=False, indent=2))
             else:
                 print(f"✓ 成功从 Cloudflare D1 拉取 {len(rows)} 条最新书签至本地: {args.data}")
+        elif args.command == "feed":
+            items = list_feed_items(args)
+            if args.json:
+                print(json.dumps(items, ensure_ascii=False, indent=2))
+            elif getattr(args, "simple", False):
+                for item in items:
+                    tid = str(item.get("tweet_id") or item.get("id") or "")
+                    title = (item.get("title") or "(无标题)").replace("\n", " ").strip()
+                    url = item.get("url") or ""
+                    print(f"{tid:<20} {title[:50]:<50} {url}")
+            elif getattr(args, "full", False):
+                feed_date = items[0].get("feed_date", "今日") if items else "今日"
+                print(f"# 🔍 𝕏 每日主动发现精选 [{feed_date}] (共 {len(items)} 条)\n")
+                for i, item in enumerate(items, 1):
+                    tid = item.get("tweet_id") or item.get("id")
+                    title = item.get("title") or "(无标题)"
+                    author = item.get("author") or ""
+                    user = item.get("username") or ""
+                    cat = item.get("category") or "未分类"
+                    score = item.get("feed_score") or item.get("final_score") or 0.0
+                    ai_reason = item.get("ai_reason") or ""
+                    url = item.get("url") or ""
+                    body = item.get("body_raw") or item.get("snippet") or "(无正文)"
+                    print(f"## [{i}] {title}\n")
+                    print(f"- **ID**: `{tid}`")
+                    print(f"- **作者**: {author} (@{user})")
+                    print(f"- **分类**: {cat} | ⭐ **评分**: {score:.2f}")
+                    if ai_reason:
+                        print(f"- **🤖 AI 评判**: {ai_reason}")
+                    print(f"- **链接**: {url}\n")
+                    print(f"{body}\n")
+                    print("-" * 60 + "\n")
+            else:
+                feed_date = items[0].get("feed_date", "今日") if items else "今日"
+                feed_path = Path(getattr(args, "feed_file", DEFAULT_FEED_FILE)).expanduser()
+                total_feed = len(json.loads(feed_path.read_text(encoding="utf-8"))) if feed_path.is_file() else len(items)
+                header = f"🔍 𝕏 每日主动发现精选 [{feed_date}] (匹配: {len(items)} / 今日精选: {total_feed})"
+                if getattr(args, "query", ""):
+                    header += f" [关键词: {args.query}]"
+                print(f"=== {header} ===")
+                for i, item in enumerate(items, 1):
+                    tid = item.get("tweet_id") or item.get("id")
+                    title = (item.get("title") or "(无标题)").replace("\n", " ").strip()
+                    author = item.get("author") or ""
+                    cat = item.get("category") or "未分类"
+                    url = item.get("url") or ""
+                    score = item.get("feed_score") or item.get("final_score") or 0.0
+                    reason = item.get("ai_reason") or ""
+                    snippet = (item.get("snippet") or item.get("body_raw") or "")[:120].replace("\n", " ").strip()
+                    print(f"\n[{i:>2}] [{tid}] {title}")
+                    print(f"     👤 {author}  📁 {cat}  ⭐ 评分: {score:.2f}")
+                    if reason:
+                        print(f"     🤖 AI 推荐: {reason}")
+                    print(f"     🔗 {url}")
+                    if snippet and snippet != title:
+                        print(f"     💬 {snippet[:90]}...")
+                if not items:
+                    print("\n(无匹配的发现推文)")
         return 0
     except (ValueError, LookupError, FileNotFoundError, RuntimeError, OSError, json.JSONDecodeError) as err:
         print(f"xcollect: {err}", file=sys.stderr)
