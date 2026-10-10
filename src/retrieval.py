@@ -79,7 +79,14 @@ def search_items(items: Iterable[dict], query: str, limit: int = 20) -> list[dic
         if score:
             # Do not mutate the canonical record with ranking annotations.
             results.append((score, item))
-    results.sort(key=lambda result: (-result[0], int(result[1].get("bookmark_position") or 0), str(result[1]["id"])))
+    def order(entry):
+        try:
+            position = int(entry[1].get("bookmark_position") or 0)
+        except (ValueError, TypeError):
+            position = 1_000_000
+        return -entry[0], position, str(entry[1]["id"])
+
+    results.sort(key=order)
     return [{"score": score, "item": item} for score, item in results[:limit]]
 
 
@@ -123,7 +130,12 @@ def export_bundle(items: Iterable[dict], query: str, destination: str | Path) ->
         raise ValueError("Export destination may not be a symlink")
     dest.mkdir(parents=True, exist_ok=True)
     post_dir = dest / "posts"
+    if post_dir.is_symlink():
+        raise ValueError("Export posts directory may not be a symlink")
     post_dir.mkdir(exist_ok=True)
+    for name in ("README.md", "manifest.json", "sources.jsonl"):
+        if (dest / name).is_symlink():
+            raise ValueError("Export output file may not be a symlink")
     records = [dict(item) for item in items if isinstance(item, dict) and item.get("id")]
     records = list({str(item["id"]): item for item in records}.values())
     lines = []
