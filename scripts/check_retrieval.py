@@ -70,6 +70,30 @@ class RetrievalTests(unittest.TestCase):
             self.assertEqual(rows[0]["body_raw"], EXAMPLE[0]["body_raw"])
             self.assertEqual((dest / "manifest.json").read_text().count("bookmarks_only"), 1)
 
+    def test_global_wrapper_resolves_data_from_checkout_and_redacts_secrets(self):
+        # tool-wrap runs xcollect_cli.py by absolute path from arbitrary shell CWD.
+        with tempfile.TemporaryDirectory() as folder:
+            environment = dict(__import__("os").environ)
+            environment["XCOLLECT_API_BASE"] = "https://private.example"
+            environment["XCOLLECT_API_TOKEN"] = "SENTINEL_SECRET_NOT_IN_OUTPUT"
+            environment.pop("XCOLLECT_DATA", None)
+            run = subprocess.run(
+                [sys.executable, str(ROOT / "xcollect_cli.py"), "doctor", "--json"],
+                cwd=folder, env=environment, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            diagnostic = json.loads(run.stdout)
+            self.assertEqual(Path(diagnostic["data_path"]), ROOT / "data" / "xcollect.json")
+            self.assertTrue(diagnostic["cloud_api_configured"])
+            self.assertNotIn("SENTINEL_SECRET_NOT_IN_OUTPUT", run.stdout)
+            override = str(Path(folder) / "private-bookmarks.json")
+            environment["XCOLLECT_DATA"] = override
+            rerun = subprocess.run(
+                [sys.executable, str(ROOT / "xcollect_cli.py"), "doctor", "--json"],
+                cwd=folder, env=environment, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(json.loads(rerun.stdout)["data_path"], override)
+
     def test_cli_with_local_json(self):
         with tempfile.TemporaryDirectory() as folder:
             data_file = Path(folder) / "xcollect.json"
