@@ -83,6 +83,27 @@ data/xcollect.json
 
 ---
 
+## 🔎 CLI：直接检索、阅读和导出已收藏推文
+
+```bash
+# Local Profile：完全离线，不需要 Cloudflare 或 AI Key
+python -m xcollect_cli search "Opus 5.5"
+python -m xcollect_cli search "JEV" --json
+python -m xcollect_cli read <tweet-id>
+python -m xcollect_cli export "Grok Bot" --out exports/grok-bot
+
+# Cloud Profile：通过受保护 API 查询，不向本地 CLI 分发 D1 管理凭据
+export XCOLLECT_API_BASE="https://your-protected-domain"
+export XCOLLECT_API_TOKEN="your-private-api-token"
+python -m xcollect_cli --source cloud search "Opus 5.5"
+```
+
+CLI 只检索 **durable bookmarks**，不会把随时间淘汰的 Discovery 热点当成收藏。当前实现为关键词和显式别名检索；真正的语义索引、自动研究报告和 MCP 属于后续阶段。Cloud API 需要配置专用 Worker Secret，Jev/Clef 判断只允许显式调用且默认关闭。
+
+详细说明：[CLI / 私有 API / Decision Engine](./docs/engineering/RETRIEVAL_CLI.md) · [ADR-0002](./docs/decisions/ADR-0002-RETRIEVAL-AND-TYPED-DECISION.md) · [执行计划](./docs/plans/2026-10-09-RETRIEVAL-DECISION-CLI.md)。
+
+---
+
 ## 🧭 我应该用哪种模式？
 
 | 需求 | 推荐模式 | 主要存储 | 需要 Cloudflare？ |
