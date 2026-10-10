@@ -102,6 +102,8 @@ python -m xcollect_cli --source cloud search "Opus 5.5"
 
 CLI 只检索 **durable bookmarks**，不会把随时间淘汰的 Discovery 热点当成收藏。当前实现为关键词和显式别名检索；真正的语义索引、自动研究报告和 MCP 属于后续阶段。Cloud API 需要配置专用 Worker Secret，Jev/Clef 判断只允许显式调用且默认关闭。
 
+Windows 本机的 `tool-wrap` 可以将此 CLI 注册为全局 `xcollect` / `xc` 命令（同时支持 Git Bash 和 CMD），无需移动源码。操作见 [tool-wrap 集成指南](./docs/engineering/TOOL_WRAP_INTEGRATION.md)。
+
 详细说明：[CLI / 私有 API / Decision Engine](./docs/engineering/RETRIEVAL_CLI.md) · [ADR-0002](./docs/decisions/ADR-0002-RETRIEVAL-AND-TYPED-DECISION.md) · [执行计划](./docs/plans/2026-10-09-RETRIEVAL-DECISION-CLI.md)。
 
 ---
