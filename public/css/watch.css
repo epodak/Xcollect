@@ -171,3 +171,13 @@ main.content-area.watch-active .watch-workspace { display: block; }
   body.watch-mode .mobile-category-bar,
   body.watch-mode #openDrawerBtn { display: none !important; }
 }
+
+.watch-evidence {
+  display: block; margin: .45rem 0 0; padding: .58rem .85rem .15rem;
+  border-top: 1px solid rgb(var(--c-line));
+  font-size: .72rem; color: rgb(var(--c-fg-subtle));
+}
+.watch-evidence summary { cursor: pointer; width: fit-content; user-select: none; }
+.watch-evidence summary:hover { color: rgb(var(--c-brand-bright)); }
+.watch-evidence code { display: block; white-space: pre-wrap; overflow-wrap: anywhere;
+  padding: .45rem 0; font-size: .7rem; line-height: 1.5; }
