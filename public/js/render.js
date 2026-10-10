@@ -244,37 +244,40 @@ function generateTweetCardHtml(item, idx = 0) {
   const hasMedia = hasImages || hasVideos;
   const primaryVideoUrl = hasVideos ? safeExternalUrl(getVideoSource(item.videos[0])) : "";
   const primaryImageUrl = hasImages ? safeExternalUrl(item.images[0]) : "";
-  const previewText = escapeHtml(cleanSnippet(item.snippet) || "暂无正文摘要");
-
-  let contentHtml = "";
-  if (hasVideos) {
-    contentHtml = `
-      <div class="card-snippet media-mode" onclick="openDetail('${tweetId}')">
-        ${previewText}
+  // Feed 使用 canonical 原文，而不是固定 140 字的 snippet。
+  // 长文只折叠展示高度，完整文本仍可直接在卡片内展开阅读。
+  const hasCanonicalBody = Boolean(String(item.body_raw || "").trim());
+  const fullText = (hasCanonicalBody ? cleanBodyRaw(item.body_raw) : cleanSnippet(item.snippet)) || "";
+  const title = cleanTitle(item.title || "");
+  const titlePrefix = title.replace(/(?:\\.\\.\\.|…)\\s*$/, "").trim();
+  const bodyLead = fullText.replace(/^#{1,3}\\s+/, "").trim();
+  const repeatedTitle = titlePrefix.length >= 18 && bodyLead.startsWith(titlePrefix);
+  const needsInlineExpand = fullText.length > 1600;
+  const readableBody = parseMarkdownToHtml(fullText || "暂无可阅读正文。", [], []);
+  const readingHtml = `
+    <div class="card-readable ${needsInlineExpand ? "is-collapsible" : ""}">
+      <div class="card-readable-content">${readableBody}</div>
+      ${!hasCanonicalBody ? '<div class="card-source-warning">当前仅同步到摘要，可能不是原文全文</div>' : ""}
+      <div class="card-reading-actions">
+        ${needsInlineExpand ? '<button type="button" class="card-expand-link" aria-expanded="false" onclick="event.stopPropagation(); toggleCardText(this)">展开全文 ↓</button>' : ""}
+        <button type="button" class="card-reader-link" onclick="event.stopPropagation(); openDetail('${tweetId}')">阅读模式 ↗</button>
       </div>
+    </div>
+  `;
+
+  let contentHtml = readingHtml;
+  if (hasVideos) {
+    contentHtml += `
       <div class="card-media-preview card-media-video" onclick="event.stopPropagation()">
         <video src="${escapeHtml(primaryVideoUrl)}" preload="metadata" controls playsinline></video>
         <div class="media-type-badge video-badge">▶ 视频</div>
       </div>
     `;
   } else if (hasImages) {
-    contentHtml = `
-      <div class="card-snippet media-mode" onclick="openDetail('${tweetId}')">
-        ${previewText}
-      </div>
+    contentHtml += `
       <div class="card-media-preview card-media-image" onclick="openDetail('${tweetId}')">
         <img src="${escapeHtml(primaryImageUrl)}" alt="推文配图" loading="lazy">
-        ${item.images.length > 1 ? `<div class="media-type-badge img-badge">🖼️ 1/${item.images.length}</div>` : ''}
-      </div>
-    `;
-  } else {
-    // 纯文字版专属排版：释放 175px 媒体空间，展示 6~7 行深度干货摘要，视觉充实整齐绝不空洞
-    contentHtml = `
-      <div class="card-text-rich-wrap" onclick="openDetail('${tweetId}')" title="点击查看完整推文正文">
-        <div class="card-text-rich-tag">📝 内容预览</div>
-        <div class="card-snippet text-rich">
-          ${previewText}
-        </div>
+        ${item.images.length > 1 ? `<div class="media-type-badge img-badge">图片 1/${item.images.length}</div>` : ""}
       </div>
     `;
   }
@@ -309,7 +312,7 @@ function generateTweetCardHtml(item, idx = 0) {
           </div>
         </div>
 
-        <div class="card-title" onclick="openDetail('${tweetId}')" title="${escapeHtml(cleanTitle(item.title) || item.filename)}">
+        <div class="card-title ${repeatedTitle ? "is-repeated" : ""}" onclick="openDetail('${tweetId}')" title="${escapeHtml(cleanTitle(item.title) || item.filename)}">
           ${escapeHtml(cleanTitle(item.title) || item.filename)}
         </div>
 
@@ -336,6 +339,26 @@ function generateTweetCardHtml(item, idx = 0) {
     </div>
   `;
 }
+
+/**
+ * 在卡片原位展开 canonical 正文。展开属于明确的继续阅读动作，
+ * 不改变 Discovery 的书签状态，也不触发外部 X 操作。
+ */
+function toggleCardText(button) {
+  const cardBody = button && button.closest(".card-readable");
+  if (!cardBody) return;
+  const expanded = cardBody.classList.toggle("is-expanded");
+  button.setAttribute("aria-expanded", expanded ? "true" : "false");
+  button.textContent = expanded ? "收起正文 ↑" : "展开全文 ↓";
+  if (expanded && typeof window.recordTweetFeedback === "function") {
+    const card = button.closest(".tweet-card");
+    if (card && card.dataset.key) {
+      window.recordTweetFeedback(card.dataset.key, "open_detail", { surface: "feed_inline" });
+    }
+  }
+}
+window.toggleCardText = toggleCardText;
+
 
 /**
  * 渲染首屏呼吸微光骨架屏 (Skeleton Screen)
