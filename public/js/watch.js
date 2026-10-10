@@ -178,7 +178,23 @@
     }
     // Canonical cards preserve images, videos, markdown copy, original links,
     // dislikes and the existing full-body reader. No second reader implementation.
-    container.innerHTML = sorted.map((item, index) => generateTweetCardHtml(item, index)).join("");
+    const fragment = document.createDocumentFragment();
+    sorted.forEach((item, index) => {
+      const template = document.createElement("template");
+      template.innerHTML = generateTweetCardHtml(item, index);
+      const card = template.content.firstElementChild;
+      if (!card) return;
+      if (item.discovery_query) {
+        const details = node("details", "watch-evidence");
+        const summary = node("summary", "", "检索命中依据");
+        const query = node("code", "", item.discovery_query);
+        details.append(summary, query);
+        const main = card.querySelector(".card-main");
+        if (main) main.append(details);
+      }
+      fragment.append(card);
+    });
+    container.replaceChildren(fragment);
     if (typeof window.observeTweetImpressions === "function") window.observeTweetImpressions(container);
   }
   async function selectTopic(id) {
