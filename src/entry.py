@@ -3,6 +3,10 @@
 
 import json
 import urllib.parse
+import hmac
+
+from src.retrieval import search_items
+from src.decision import evaluate_bookmark
 
 from config_loader import CONFIG
 from twitter import call_x_bookmark_api
@@ -39,6 +43,70 @@ async def on_fetch(request, env):
         path = url.path
         method = request.method.upper()
         query = urllib.parse.parse_qs(url.query)
+
+        # CLI/Agent read and decision endpoints: fail closed when secret is absent.
+        # Legacy browser routes are unchanged; protect the entire application
+        # (including /api/tweets and /api/feed) behind Cloudflare Access.
+        if path.startswith("/api/v1/"):
+            configured = str(getattr(env, "XCOLLECT_API_TOKEN", "") or "")
+            if not configured:
+                return json_resp({"success": False, "error": "API_NOT_CONFIGURED"}, 503)
+            supplied = str(request.headers.get("Authorization") or "")
+            if not hmac.compare_digest(supplied, "Bearer " + configured):
+                return json_resp({"success": False, "error": "UNAUTHORIZED"}, 401)
+
+            if path == "/api/v1/search" and method == "GET":
+                term = str(query.get("q", [""])[0] or "")
+                try:
+                    limit = int(query.get("limit", ["20"])[0])
+                    if not (1 <= len(term) <= 200 and 1 <= limit <= 100):
+                        raise ValueError("Invalid query size or limit")
+                    stored = await load_tweets(env)
+                    if not stored.get("success"):
+                        return json_resp({"success": False, "error": "STORAGE_UNAVAILABLE"}, 503)
+                    results = search_items(stored.get("data", []), term, limit)
+                except (ValueError, TypeError):
+                    return json_resp({"success": False, "error": "INVALID_QUERY"}, 400)
+                return json_resp({
+                    "success": True, "scope": "bookmarks_only",
+                    "query": term, "total": len(results), "results": results,
+                }, cache_seconds=0)
+
+            if path.startswith("/api/v1/items/") and method == "GET":
+                source_id = urllib.parse.unquote(path[len("/api/v1/items/"):])
+                if not source_id or len(source_id) > 200 or "/" in source_id:
+                    return json_resp({"success": False, "error": "INVALID_ID"}, 400)
+                stored = await load_tweets(env)
+                if not stored.get("success"):
+                    return json_resp({"success": False, "error": "STORAGE_UNAVAILABLE"}, 503)
+                item = next((t for t in stored.get("data", []) if str(t.get("id")) == source_id), None)
+                return json_resp({"success": True, "item": item}, cache_seconds=0) if item else json_resp(
+                    {"success": False, "error": "NOT_FOUND"}, 404)
+
+            if path == "/api/v1/decide" and method == "POST":
+                # Explicit only: no model invocations on sync, read, or search.
+                try:
+                    body = json.loads(await request.text())
+                    source_id = str(body.get("id") or "")
+                    model = str(body.get("model") or "clef-flash")
+                    if len(source_id) > 200 or not source_id or model not in ("clef-flash", "clef", "jev"):
+                        raise ValueError("Invalid source id or model")
+                except (ValueError, TypeError, AttributeError):
+                    return json_resp({"success": False, "error": "INVALID_REQUEST"}, 400)
+                stored = await load_tweets(env)
+                if not stored.get("success"):
+                    return json_resp({"success": False, "error": "STORAGE_UNAVAILABLE"}, 503)
+                item = next((t for t in stored.get("data", []) if str(t.get("id")) == source_id), None)
+                if item is None:
+                    return json_resp({"success": False, "error": "NOT_FOUND"}, 404)
+                try:
+                    decision = await evaluate_bookmark(env, item, model)
+                except Exception:
+                    # Don't leak model-provider errors or private source content.
+                    return json_resp({"success": False, "error": "DECISION_PROVIDER_UNAVAILABLE"}, 503)
+                return json_resp({"success": True, "scope": "bookmarks_only", "decision": decision}, cache_seconds=0)
+
+            return json_resp({"success": False, "error": "NOT_FOUND"}, 404)
 
         if path == "/api/auth/status":
             auth_token = getattr(env, "X_AUTH_TOKEN", "") or ""
