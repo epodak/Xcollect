@@ -392,3 +392,11 @@ Still pending:
 ## Maintenance contract
 
 Future agents changing this subsystem should use `.agents/skills/discovery-plane/SKILL.md` as the operational playbook. The architectural invariant remains in `AGENTS.md`, while executable regressions are locked by `scripts/check_discovery.py`, `scripts/check_feed_contract.py`, and `scripts/check_related_hot.py`.
+
+## Topic Watch: explicit user research intent
+
+A Watch is a **durable search policy**, not a taxonomy node and not a saved discovery candidate. Its `title`, `intent`, optional `directions`, state, and generated query seeds persist in D1. Watch queries use a separate round-robin budget of two queries per eligible Discovery cycle; the existing global query budget is unchanged. Watch matches live in `watch_candidate_matches` (many-to-many) and point at the shared ephemeral `discovery_candidates` source record.
+
+The Watch API is `GET/POST /api/watch`, `POST /api/watch/state` (active/paused), and `GET /api/watch/feed?id=<topic_id>`. Existing Cloudflare Access protection applies. Results enforce the same rolling source-time TTL, never materialize permanent copies, and never count as X bookmarks. Expired candidate references are cleaned during Discovery GC. Bookmark authority remains `tweets` after X sync.
+
+Current v1 limits: query expansion is deterministic and keyword-based; personalized semantic intent scoring and model-generated query expansion remain future work. The Watch feed ranks its own matched candidates independently of Global Discovery's 300-item daily selection, while reusing candidate quality scores and rejection state. No background source poll starts from page load.

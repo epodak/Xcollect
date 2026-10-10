@@ -152,6 +152,26 @@ const api = {
     return await resp.json();
   },
 
+  async getWatches() {
+    const r = await fetch("/api/watch", {cache:"no-store"});
+    return await r.json();
+  },
+
+  async createWatch(topic) {
+    const r = await fetch("/api/watch", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(topic)});
+    return {ok:r.ok,data:await r.json()};
+  },
+
+  async setWatchState(id,state) {
+    const r = await fetch("/api/watch/state", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,state})});
+    return {ok:r.ok,data:await r.json()};
+  },
+
+  async getWatchFeed(id) {
+    const r = await fetch("/api/watch/feed?id="+encodeURIComponent(id),{cache:"no-store"});
+    return {ok:r.ok,data:await r.json()};
+  },
+
   async runDiscovery() {
     const resp = await fetch("/api/discovery/run", {
       method: "POST",

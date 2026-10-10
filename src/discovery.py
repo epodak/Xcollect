@@ -1270,6 +1270,14 @@ async def get_discovery_status(env) -> dict:
     }
 
 
+async def _watch_table_exists(env):
+    try:
+        result = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='watch_candidate_matches'").all()
+        return bool(result.results)
+    except Exception:
+        return False
+
+
 async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
     if not hasattr(env, "DB"):
         return 400, {
@@ -1282,6 +1290,9 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
     # Every scheduler tick enforces rolling freshness, even when a new
     # SearchTimeline acquisition is not due yet.
     purge_meta = await purge_expired_discovery(env)
+    # Watch references must never preserve expired source content.
+    if await _watch_table_exists(env):
+        await env.DB.prepare('DELETE FROM watch_candidate_matches WHERE tweet_id NOT IN (SELECT tweet_id FROM discovery_candidates)').run()
     current_feed_count, _ = await materialize_daily_feed(env)
 
     if not CONFIG.discovery_enabled:
@@ -1312,6 +1323,8 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
         }
 
     selected_queries = await select_queries_for_run(env)
+    from watch import watch_query_plan, save_matches
+    selected_queries.extend(await watch_query_plan(env, limit=2))
     if not selected_queries:
         return 400, {
             "success": False,
@@ -1324,6 +1337,7 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
     rejected_count = 0
     duplicate_bookmark_count = 0
     accepted_by_id = {}
+    topic_matches = []
     query_reports = []
 
     for spec in selected_queries:
@@ -1365,6 +1379,8 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
             item["discovery_source"] = "x_search"
             item["discovery_query"] = query
             accepted_by_id[tweet_id] = item
+            if spec.get('topic_id'):
+                topic_matches.append((spec['topic_id'], tweet_id, query))
 
     successful_queries = sum(
         1 for report in query_reports if not report.get("error")
@@ -1380,6 +1396,7 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
 
     accepted = list(accepted_by_id.values())
     persisted = await persist_candidates(env, accepted)
+    await save_matches(env, topic_matches)
 
     judged, judge_meta = await judge_candidates(env, accepted)
     judged_persisted = await persist_judgements(env, judged)
