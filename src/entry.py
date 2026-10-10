@@ -4,6 +4,15 @@
 import json
 import urllib.parse
 import hmac
+import asyncio
+
+try:
+    # Cloudflare's documented legacy Python handler registration.
+    from workers import handler as worker_handler
+except ImportError:
+    # Local Python tests do not run in the Workers runtime.
+    def worker_handler(func):
+        return func
 
 from retrieval import search_items
 from decision import evaluate_bookmark
@@ -40,6 +49,7 @@ except ImportError:
     JsObject = None
 
 
+@worker_handler
 async def on_fetch(request, env):
     """Worker 边缘请求处理入口。"""
     try:
@@ -451,6 +461,7 @@ async def on_fetch(request, env):
         return json_resp({"success": False, "error": f"Worker Exception: {str(err)}"}, 500)
 
 
+@worker_handler
 async def on_scheduled(event, env, ctx):
     """Cloudflare Cron Trigger 入口。
 
@@ -459,38 +470,39 @@ async def on_scheduled(event, env, ctx):
     """
     cron_expr = getattr(event, "cron", "") or "scheduled"
 
-    try:
-        bookmark_status, bookmark_payload = await perform_cloud_sync(
-            env,
-            trigger=f"cron:{cron_expr}",
-        )
-    except Exception as err:
-        bookmark_status = 500
-        bookmark_payload = {
-            "success": False,
-            "error": "BOOKMARK_CRON_EXCEPTION",
-            "message": str(err),
-        }
-
-    try:
-        discovery_status, discovery_payload = await run_discovery_cycle(
-            env,
-            force=False,
-        )
-    except Exception as err:
-        discovery_status = 500
-        discovery_payload = {
-            "success": False,
-            "error": "DISCOVERY_CRON_EXCEPTION",
-            "message": str(err),
-        }
+    # These are independent pipelines: a slow or blocked X Bookmarks sync
+    # must not delay the independent 15-minute Topic Watch discovery poll.
+    async def bookmark_job():
         try:
-            await env.DB.prepare(
-                "INSERT INTO meta_kv (key, value, updated_at) VALUES ('discovery:last_error', ?, datetime('now')) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
-            ).bind(str(err)).run()
-        except:
-            pass
+            return await perform_cloud_sync(env, trigger=f"cron:{cron_expr}")
+        except Exception as err:
+            return 500, {
+                "success": False, "error": "BOOKMARK_CRON_EXCEPTION",
+                "message": str(err),
+            }
+
+    async def discovery_job():
+        try:
+            return await run_discovery_cycle(env, force=False)
+        except Exception as err:
+            # Persist failure after Python/Worker-specific unexpected exceptions.
+            try:
+                await env.DB.prepare(
+                    "INSERT INTO meta_kv (key, value, updated_at) "
+                    "VALUES ('discovery:last_error', ?, datetime('now')) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                    "updated_at=excluded.updated_at"
+                ).bind(str(err)[:500]).run()
+            except Exception:
+                pass
+            return 500, {
+                "success": False, "error": "DISCOVERY_CRON_EXCEPTION",
+                "message": str(err),
+            }
+
+    (bookmark_status, bookmark_payload), (discovery_status, discovery_payload) = (
+        await asyncio.gather(bookmark_job(), discovery_job())
+    )
 
     failures = []
     if bookmark_status >= 400 or not bookmark_payload.get("success"):

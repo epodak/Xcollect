@@ -1259,6 +1259,7 @@ async def get_discovery_status(env) -> dict:
         "last_attempt_at": await _meta_get(env, "discovery:last_attempt_at", ""),
         "last_run_at": await _meta_get(env, "discovery:last_run_at", ""),
         "last_run_summary": await _meta_get(env, "discovery:last_run_summary", ""),
+        "last_failure_summary": await _meta_get(env, "discovery:last_failure_summary", ""),
         "query_cursor": await _meta_get(env, "discovery:query_cursor", "0"),
         "states": counts,
         "daily_feed_count": feed_count,
@@ -1414,6 +1415,18 @@ async def run_discovery_cycle(env, force: bool = False) -> tuple[int, dict]:
     if global_queries:
         await _meta_set(env, "discovery:last_attempt_at", _now_iso())
     if successful_queries == 0:
+        # A returned 502 is not an exception and was previously invisible in
+        # meta_kv; persist bounded per-query diagnostics for production triage.
+        failed_queries = [
+            {"query_kind": "watch" if spec.get("topic_id") else "global",
+             "error": str(report.get("error", ""))[:220],
+             "pulled_count": report.get("pulled_count", 0)}
+            for spec, report in zip(selected_queries, query_reports)
+        ]
+        await _meta_set(
+            env, "discovery:last_failure_summary",
+            json.dumps({"at": _now_iso(), "queries": failed_queries}, ensure_ascii=False),
+        )
         if watch_queries:
             await record_watch_poll(env, watch_reports, 0,
                                     error="X SearchTimeline queries all failed")
