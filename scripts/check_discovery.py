@@ -133,7 +133,7 @@ def main():
             "full_text": "A useful long enough discovery candidate about systems architecture.",
             "favorite_count": 123,
             "retweet_count": 14,
-            "created_at": "2026-10-04T12:00:00+00:00",
+            "created_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
             "lang": "en",
         },
         "core": {

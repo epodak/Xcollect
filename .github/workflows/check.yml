@@ -29,3 +29,9 @@ jobs:
 
       - name: Acceptance gate
         run: pnpm run check
+
+      - name: Installable CLI smoke test
+        run: |
+          python -m pip install -e .
+          xcollect --help
+
