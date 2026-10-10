@@ -59,12 +59,13 @@ Cloud API requires `XCOLLECT_API_TOKEN` and `Authorization: Bearer ...`, or expl
 ## Progress ledger
 
 - [x] Inspected repository contracts and Cloudflare model API.
-- [x] Created isolated feature branch.
-- [ ] P1 local search/export/CLI and tests.
-- [ ] P2 cloud read endpoints.
-- [ ] P3 optional decision provider.
-- [ ] CI check and independent verification.
-- [ ] Live Cloudflare deployment (requires credentials).
+- [x] Created isolated feature branch and draft PR #5.
+- [x] P1 lexical local search, read, safe bundle export and CLI with tests.
+- [x] P2 cloud token-gated v1 read endpoints; local loopback read API.
+- [x] P3 opt-in Clef-flash/Clef/Jev typed decision code with fake-binding unit tests.
+- [x] PR CI: existing contracts + retrieval tests passed (including repair of time-stale Discovery fixture).
+- [ ] P4 FTS5/multilingual semantic index, AI synthesis, MCP, incremental offline mirror.
+- [ ] P5 live Worker inference and Cloudflare deployment — gated by owner secrets and Access review.
 
 ## Sources
 
