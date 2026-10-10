@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 app = (ROOT / "public" / "js" / "app.js").read_text(encoding="utf-8")
 render = (ROOT / "public" / "js" / "render.js").read_text(encoding="utf-8")
+html = (ROOT / "public" / "index.html").read_text(encoding="utf-8")
 entry = (ROOT / "src" / "entry.py").read_text(encoding="utf-8")
 discovery = (ROOT / "src" / "discovery.py").read_text(encoding="utf-8")
 preferences = (ROOT / "src" / "preferences.py").read_text(encoding="utf-8")
@@ -45,6 +46,9 @@ assert "+1/+10/+50" not in preferences
 assert "toggleXBookmark" not in app
 assert "btn-toggle-" not in render
 assert "modalToggleBookmark" not in render
+assert "modalToggleBookmark" not in html
+assert 'id="modalDismissDiscovery"' in html
+assert "CreateBookmark" not in app
 assert "modalDismissDiscovery" in render
 assert "open_original" in render
 assert "reconcile_verified_discovery_bookmarks" in sync_service
