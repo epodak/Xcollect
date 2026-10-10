@@ -14,6 +14,9 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from src.retrieval import export_bundle, search_items
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_DATA_FILE = str(PROJECT_ROOT / "data" / "xcollect.json")
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -81,10 +84,12 @@ def get_item(args) -> dict:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="xcollect", description="Read and export Xcollect's durable bookmarks")
     parser.add_argument("--source", choices=("local", "cloud"), default="local")
-    parser.add_argument("--data", default="data/xcollect.json", help="Local profile JSON file")
+    parser.add_argument("--data", default=os.getenv("XCOLLECT_DATA", DEFAULT_DATA_FILE), help="Local profile JSON (default: <checkout>/data/xcollect.json; override with XCOLLECT_DATA)")
     parser.add_argument("--api-base", default=os.getenv("XCOLLECT_API_BASE", ""), help="HTTPS Worker base URL")
     parser.add_argument("--token", default=os.getenv("XCOLLECT_API_TOKEN", ""), help="Cloud bearer token; prefer environment")
     sub = parser.add_subparsers(dest="command", required=True)
+    doctor = sub.add_parser("doctor", help="Inspect local setup without reading private tokens")
+    doctor.add_argument("--json", action="store_true")
     search = sub.add_parser("search", help="Search existing bookmarks (lexical, no AI)")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=20)
@@ -105,7 +110,22 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "search":
+        if args.command == "doctor":
+            path = Path(args.data).expanduser()
+            diagnostics = {
+                "source": args.source,
+                "project_root": str(PROJECT_ROOT),
+                "python": sys.executable,
+                "data_path": str(path.resolve()),
+                "local_data_exists": path.is_file(),
+                "cloud_api_configured": bool(args.api_base and args.token),
+            }
+            if args.json:
+                print(json.dumps(diagnostics, ensure_ascii=False, indent=2))
+            else:
+                for key, value in diagnostics.items():
+                    print(f"{key}: {value}")
+        elif args.command == "search":
             found = get_results(args)
             if args.json:
                 print(json.dumps({"total": len(found), "results": found}, ensure_ascii=False, indent=2))
