@@ -52,11 +52,15 @@ const api = {
   },
 
   // X 书签添加/移除切换
-  async toggleBookmark(tweetId, action) {
+  async toggleBookmark(tweetId, action, sourceKind = "bookmark") {
     const resp = await fetch("/api/bookmark/toggle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tweet_id: tweetId, action: action })
+      body: JSON.stringify({
+        tweet_id: String(tweetId || ""),
+        action: action,
+        source_kind: sourceKind
+      })
     });
     return await resp.json();
   },
