@@ -94,6 +94,65 @@ def get_item(args) -> dict:
     return api_request(args.api_base, args.token, path)["item"]
 
 
+def pull_d1_data(target_path: str = DEFAULT_DATA_FILE) -> list[dict]:
+    """通过 Cloudflare D1 REST API 拉取全量书签并保存到本地 JSON。"""
+    cf_token = os.getenv("CLOUDFLARE_API_TOKEN") or CONFIG.cloudflare_api_token
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID") or CONFIG.cloudflare_account_id
+    if not cf_token or not account_id:
+        raise ValueError("拉取 Cloudflare 数据需要配置 CLOUDFLARE_API_TOKEN 与 CLOUDFLARE_ACCOUNT_ID")
+    database_id = "810111fa-45f3-4e76-aa19-446c62c1d37a"
+    try:
+        wrangler_cfg = json.loads((PROJECT_ROOT / "wrangler.jsonc").read_text(encoding="utf-8"))
+        d1_list = wrangler_cfg.get("d1_databases", [])
+        if d1_list and isinstance(d1_list, list) and d1_list[0].get("database_id"):
+            database_id = d1_list[0]["database_id"]
+    except Exception:
+        pass
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database/{database_id}/query"
+    req = Request(
+        url,
+        data=json.dumps({"sql": "SELECT * FROM tweets ORDER BY id DESC"}).encode("utf-8"),
+        headers={"Authorization": f"Bearer {cf_token}", "Content-Type": "application/json"},
+        method="POST"
+    )
+    with build_opener(NoRedirect()).open(req, timeout=30) as resp:
+        data = json.load(resp)
+    rows = data.get("result", [{}])[0].get("results", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("Cloudflare D1 返回非预期数据结构")
+    dest = Path(target_path).expanduser()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    return rows
+
+
+def list_items(args) -> list[dict]:
+    """列出书签，支持可选关键词与分类过滤。"""
+    items = read_local(args.data)
+    query = (getattr(args, "query", "") or "").strip().lower()
+    category = (getattr(args, "category", "") or "").strip().lower()
+
+    filtered = []
+    for item in items:
+        if category:
+            item_cat = str(item.get("category") or "").lower()
+            item_sub = str(item.get("sub_category") or "").lower()
+            if category not in item_cat and category not in item_sub:
+                continue
+        if query:
+            full_text = " ".join(str(item.get(k) or "") for k in (
+                "title", "author", "username", "body_raw", "snippet", "category", "sub_category"
+            )).lower()
+            if query not in full_text:
+                continue
+        filtered.append(item)
+
+    limit = getattr(args, "limit", 20)
+    if limit > 0:
+        filtered = filtered[:limit]
+    return filtered
+
+
 def run_research_request(args) -> dict:
     """CLI 只负责数据源与交付；有鉴权的 Worker 执行真实判决和生成模型。"""
     provider = args.provider
@@ -221,6 +280,15 @@ def build_parser() -> argparse.ArgumentParser:
                              help="明确允许第三方 Jev 按量计费")
         command.add_argument("--out", required=name == "research", help="将报告和完整来源导出到指定目录")
         command.add_argument("--json", action="store_true", help="打印结构化研究结果")
+    list_cmd = sub.add_parser("list", help="列出书签清单（人类速查或让其他 AI Agent 快速消费）")
+    list_cmd.add_argument("query", nargs="?", default="", help="可选关键词过滤")
+    list_cmd.add_argument("--limit", type=int, default=20, help="最多显示条数（默认 20 条，0 为全部）")
+    list_cmd.add_argument("--category", default="", help="按分类过滤")
+    list_cmd.add_argument("--json", action="store_true", help="输出完整原始 JSON 数组")
+    list_cmd.add_argument("--full", action="store_true", help="输出包含正文全文 body_raw 的 Markdown 卡片")
+    list_cmd.add_argument("--simple", action="store_true", help="紧凑单行格式 (ID 标题 链接)")
+    pull_cmd = sub.add_parser("pull", help="从 Cloudflare D1 拉取最新全量书签至本地 data/xcollect.json")
+    pull_cmd.add_argument("--json", action="store_true", help="JSON 格式报告拉取结果")
     return parser
 
 
@@ -283,6 +351,59 @@ def main(argv: list[str] | None = None) -> int:
                 if result.get("profile") == "demo_seed":
                     print("注意：本次使用仓库演示数据，并非已同步的私人收藏。\n")
                 print(result.get("report", ""))
+        elif args.command == "list":
+            items = list_items(args)
+            if args.json:
+                print(json.dumps(items, ensure_ascii=False, indent=2))
+            elif getattr(args, "simple", False):
+                for item in items:
+                    tid = str(item.get("id") or "")
+                    title = (item.get("title") or "(无标题)").replace("\n", " ").strip()
+                    url = item.get("url") or ""
+                    print(f"{tid:<20} {title[:50]:<50} {url}")
+            elif getattr(args, "full", False):
+                print(f"# 𝕏 书签详情导读 (共 {len(items)} 条)\n")
+                for i, item in enumerate(items, 1):
+                    tid = item.get("id")
+                    title = item.get("title") or "(无标题)"
+                    author = item.get("author") or ""
+                    user = item.get("username") or ""
+                    cat = item.get("category") or "未分类"
+                    url = item.get("url") or ""
+                    body = item.get("body_raw") or item.get("snippet") or "(无正文)"
+                    print(f"## [{i}] {title}\n")
+                    print(f"- **ID**: `{tid}`")
+                    print(f"- **作者**: {author} (@{user})")
+                    print(f"- **分类**: {cat}")
+                    print(f"- **链接**: {url}\n")
+                    print(f"{body}\n")
+                    print("-" * 60 + "\n")
+            else:
+                total_local = len(read_local(args.data))
+                header = f"𝕏 书签列表 (匹配: {len(items)} / 总计: {total_local})"
+                if getattr(args, "query", ""):
+                    header += f" [关键词: {args.query}]"
+                print(f"=== {header} ===")
+                for i, item in enumerate(items, 1):
+                    tid = item.get("id")
+                    title = (item.get("title") or "(无标题)").replace("\n", " ").strip()
+                    author = item.get("author") or ""
+                    cat = item.get("category") or "未分类"
+                    url = item.get("url") or ""
+                    snippet = (item.get("snippet") or item.get("body_raw") or "")[:120].replace("\n", " ").strip()
+                    print(f"\n[{i:>2}] [{tid}] {title}")
+                    print(f"     👤 {author}  📁 {cat}")
+                    print(f"     🔗 {url}")
+                    if snippet and snippet != title:
+                        print(f"     💬 {snippet[:90]}...")
+                if not items:
+                    print("\n(无匹配的书签)")
+        elif args.command == "pull":
+            rows = pull_d1_data(args.data)
+            if args.json:
+                print(json.dumps({"success": True, "count": len(rows), "path": str(args.data)}, ensure_ascii=False, indent=2))
+            else:
+                print(f"✓ 成功从 Cloudflare D1 拉取 {len(rows)} 条最新书签至本地: {args.data}")
         return 0
     except (ValueError, LookupError, FileNotFoundError, RuntimeError, OSError, json.JSONDecodeError) as err:
         print(f"xcollect: {err}", file=sys.stderr)
