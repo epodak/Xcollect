@@ -86,8 +86,8 @@ jobs:
               'update the adapter if required, then update the reviewed SHAs in `scripts/upstream_sources.json`.',
               'The next clean watch run will close this issue.',
               '',
-              'Workflow run: ' + context.serverUrl + '/' + owner + '/' + repo +
-                '/actions/runs/' + context.runId
+              'Workflow: ' + context.serverUrl + '/' + owner + '/' + repo +
+                '/actions/workflows/upstream-watch.yml'
             ];
             const body = lines.join('\n').slice(0, 60000);
             if (report.needs_review) {
