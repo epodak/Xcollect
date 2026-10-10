@@ -7,6 +7,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import threading
+from http.server import HTTPServer
+from urllib.parse import urlencode
+from urllib.request import urlopen
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -102,6 +107,57 @@ class RetrievalTests(unittest.TestCase):
         self.assertNotIn("model", make_request(EXAMPLE[0], "jev")[1])
         self.assertRaises(ValueError, make_request, EXAMPLE[0], "unknown")
         self.assertRaises(RuntimeError, parse_result, {"response": "made-up narrative"})
+
+
+class LocalHttpTests(unittest.TestCase):
+    def test_local_api_is_bookmarks_only(self):
+        import local_server
+        with tempfile.TemporaryDirectory() as folder:
+            db = Path(folder) / "bookmarks.json"
+            db.write_text(json.dumps(EXAMPLE), encoding="utf-8")
+            with patch.object(local_server, "DB_FILE", str(db)):
+                server = HTTPServer(("127.0.0.1", 0), local_server.CuratedPortalHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    root = f"http://127.0.0.1:{server.server_port}"
+                    with urlopen(root + "/api/v1/search?" + urlencode({"q": "jev"}), timeout=3) as response:
+                        payload = json.load(response)
+                    self.assertEqual(payload["scope"], "bookmarks_only")
+                    self.assertEqual(payload["results"][0]["item"]["id"], "102")
+                    with urlopen(root + "/api/v1/items/101", timeout=3) as response:
+                        item = json.load(response)["item"]
+                    self.assertEqual(item["body_raw"], EXAMPLE[0]["body_raw"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=3)
+
+
+class CloudHttpTests(unittest.IsolatedAsyncioTestCase):
+    async def test_token_gate_before_bookmark_read(self):
+        sys.path.insert(0, str(ROOT / "src"))
+        import entry as edge
+        class Request:
+            method = "GET"
+            url = "https://private.example/api/v1/search?q=jev"
+            def __init__(self, auth=""):
+                self.headers = {"Authorization": auth}
+        class Env:
+            XCOLLECT_API_TOKEN = "test-secret"
+        class NoSecret:
+            pass
+        async def read_back(env):
+            return {"success": True, "data": EXAMPLE}
+        with patch.object(edge, "json_resp", side_effect=lambda data, status=200, cache_seconds=0: (status, data)):
+            with patch.object(edge, "load_tweets", read_back):
+                missing = await edge.on_fetch(Request("Bearer test-secret"), NoSecret())
+                denied = await edge.on_fetch(Request("Bearer wrong"), Env())
+                allowed = await edge.on_fetch(Request("Bearer test-secret"), Env())
+        self.assertEqual(missing[0], 503)
+        self.assertEqual(denied[0], 401)
+        self.assertEqual(allowed[0], 200)
+        self.assertEqual(allowed[1]["results"][0]["item"]["id"], "102")
 
 
 class DecisionAsyncTests(unittest.IsolatedAsyncioTestCase):
