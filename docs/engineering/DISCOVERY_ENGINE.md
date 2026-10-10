@@ -276,7 +276,8 @@ Candidate states are expected to evolve through:
 ```text
 candidate → rejected                 # AI gate or explicit card-corner × false-positive reject
 candidate → selected → shown
-selected → saved_pending → saved     # explicit X save, then bookmark sync/read-back confirmation
+selected → saved                      # X bookmarks sync plus D1 readback confirmation
+selected → saved_pending → saved     # compatibility with legacy API write flow
 selected → hidden                    # “不想看这类” semantic preference action
 ```
 
@@ -285,7 +286,7 @@ The two negative exits are intentionally not equivalent:
 - `rejected` means “this item should not have entered Discovery”. It trains source/query/gate quality and must not lower topic/sub-category/author preference.
 - `hidden` means “I do not want more content like this”. It remains a semantic preference signal.
 
-Likewise, `saved_pending` is not a bookmark. It only means X accepted the save request. The item becomes a durable bookmark after the bookmark plane synchronizes it into `tweets` and read-back confirms the ID.
+Likewise, `saved_pending` is not a bookmark and only exists for legacy write API compatibility. Discovery exposes Copy, Not Interested, and Original (plus the independent false-positive ×). `open_original` remains weaker positive interest; it is not proof of a saved X bookmark. A terminal `bookmark` feedback event must come from an X Bookmarks fetch followed by D1 persistence and ID readback. Only a live Discovery candidate or legacy pending record may be attributed. Unconfirmed candidates still expire after 24 hours.
 
 ### daily_feed
 

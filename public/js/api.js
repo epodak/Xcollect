@@ -51,20 +51,6 @@ const api = {
     return await resp.json();
   },
 
-  // X 书签添加/移除切换
-  async toggleBookmark(tweetId, action, sourceKind = "bookmark") {
-    const resp = await fetch("/api/bookmark/toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tweet_id: String(tweetId || ""),
-        action: action,
-        source_kind: sourceKind
-      })
-    });
-    return await resp.json();
-  },
-
   // 从 X 线上书签同步；POST 表达“远端读取 + 本地持久化”的副作用
   async syncBookmarks() {
     const resp = await fetch("/api/bookmarks/sync", {

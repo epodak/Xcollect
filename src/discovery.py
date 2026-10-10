@@ -1070,6 +1070,113 @@ async def purge_expired_discovery(env, now=None) -> dict:
     }
 
 
+
+def eligible_confirmed_discovery_rows(rows: list, confirmed_ids: set[str], now=None) -> list:
+    """X returned this ID; only current Discovery observations are eligible.
+
+    Legacy saved_pending persists beyond Discovery TTL while awaiting readback.
+    Hidden, rejected, old and unconfirmed candidates cannot become conversions.
+    """
+    now = now or datetime.now(timezone.utc)
+    known = {str(x) for x in confirmed_ids}
+    result = []
+    for row in rows:
+        tweet_id = str(_row_get(row, "tweet_id", "") or "")
+        state = str(_row_get(row, "state", "") or "")
+        if not tweet_id or tweet_id not in known or state in ("hidden", "rejected"):
+            continue
+        if state != "saved_pending" and not _within_retention(
+            _row_get(row, "created_at", ""), _row_get(row, "first_seen_at", ""), now=now
+        ):
+            continue
+        result.append(row)
+    return result
+
+
+async def reconcile_verified_discovery_bookmarks(env, confirmed_ids: list[str]) -> dict:
+    """Emit terminal positive evidence only after X fetch AND D1 commit/readback.
+
+    Returned IDs prove presence even if an incremental X scan is incomplete.
+    The stable event ID and action check make manual/Cron retries idempotent.
+    """
+    summary = {"confirmed": 0, "already_recorded": 0, "errors": []}
+    if not hasattr(env, "DB"):
+        return summary
+    ids = list(dict.fromkeys(str(x) for x in confirmed_ids if x))
+    if not ids:
+        return summary
+    await ensure_discovery_schema(env)
+    rows = await env.DB.prepare(
+        "SELECT tweet_id, state, created_at, first_seen_at, category, sub_category, "
+        "author, username, discovery_query, discovery_source "
+        "FROM discovery_candidates WHERE tweet_id IN (SELECT value FROM json_each(?))"
+    ).bind(json.dumps(ids)).all()
+    eligible = eligible_confirmed_discovery_rows(rows.results, set(ids))
+    if not eligible:
+        return summary
+
+    persisted = await env.DB.prepare(
+        "SELECT id FROM tweets WHERE id IN (SELECT value FROM json_each(?))"
+    ).bind(json.dumps([str(_row_get(r, "tweet_id")) for r in eligible])).all()
+    stored = {str(_row_get(r, "id", "") or "") for r in persisted.results}
+
+    try:
+        previous = await env.DB.prepare(
+            "SELECT DISTINCT tweet_id FROM feedback_events WHERE action = 'bookmark' "
+            "AND tweet_id IN (SELECT value FROM json_each(?))"
+        ).bind(json.dumps(ids)).all()
+        seen = {str(_row_get(r, "tweet_id", "") or "") for r in previous.results}
+    except Exception:
+        seen = set()
+
+    try:
+        from storage import record_feedback_event
+    except ImportError:
+        from src.storage import record_feedback_event
+
+    promoted = []
+    for row in eligible:
+        tweet_id = str(_row_get(row, "tweet_id", "") or "")
+        if tweet_id not in stored:
+            continue
+        if tweet_id in seen:
+            summary["already_recorded"] += 1
+            promoted.append(tweet_id)
+            continue
+        context = {
+            "evidence_source": "x_bookmarks_readback",
+            "feedback_scope": "verified_x_bookmark",
+            "surface": "discovery",
+            "category": _row_get(row, "category", "") or "",
+            "sub_category": _row_get(row, "sub_category", "") or "",
+            "username": _row_get(row, "username", "") or "",
+            "author": _row_get(row, "author", "") or "",
+            "discovery_query": _row_get(row, "discovery_query", "") or "",
+            "discovery_source": _row_get(row, "discovery_source", "") or "",
+        }
+        ok, message, _ = await record_feedback_event(
+            env, event_id="x_verified_bookmark:" + tweet_id,
+            tweet_id=tweet_id, action="bookmark", context=context,
+        )
+        if not ok:
+            summary["errors"].append(tweet_id + ": " + str(message)[:100])
+            continue
+        summary["confirmed"] += 1
+        seen.add(tweet_id)
+        promoted.append(tweet_id)
+
+    if promoted:
+        values = json.dumps(promoted)
+        await env.DB.prepare(
+            "UPDATE discovery_candidates SET state = 'saved', last_seen_at = ? "
+            "WHERE tweet_id IN (SELECT value FROM json_each(?))"
+        ).bind(_now_iso(), values).run()
+        await env.DB.prepare(
+            "DELETE FROM daily_feed WHERE tweet_id IN (SELECT value FROM json_each(?))"
+        ).bind(values).run()
+    return summary
+
+
 async def reconcile_candidate_promotions(env) -> int:
     """Promote saved_pending candidates only after the bookmark plane confirms them.
 

@@ -286,6 +286,10 @@ async def on_fetch(request, env):
             except Exception:
                 return json_resp({"success": False, "error": "Invalid JSON"}, 400)
 
+            # A browser interaction cannot claim verified membership in X Bookmarks.
+            if str(data.get("action", "")) in ("bookmark", "unbookmark"):
+                return json_resp({"success": False, "error": "BOOKMARK_FEEDBACK_SYNC_ONLY"}, 400)
+
             ok, msg, event = await record_feedback_event(
                 env,
                 event_id=data.get("event_id", ""),
