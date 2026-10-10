@@ -37,7 +37,30 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
           import subprocess
+          import urllib.request
+          import urllib.error
+
+          # Verify the actual Cron Trigger binding; a deploy success alone
+          # does not prove a schedule was installed.
+          account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+          token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+          if account and token:
+              request = urllib.request.Request(
+                  "https://api.cloudflare.com/client/v4/accounts/" + account +
+                  "/workers/scripts/x-collect/schedules",
+                  headers={"Authorization": "Bearer " + token},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      payload = json.load(response)
+                  schedules = (payload.get("result") or {}).get("schedules") or []
+                  print("production_crons", [x.get("cron") for x in schedules])
+              except urllib.error.HTTPError as e:
+                  print("production_crons_query_http_status", e.code)
+              except Exception as e:
+                  print("production_crons_query_unavailable", type(e).__name__)
 
           def execute(sql):
               p = subprocess.run(
@@ -88,4 +111,6 @@ jobs:
                         "state", row.get("state"),
                         "queries", row.get("query_count"),
                         "successful", row.get("successful_queries"))
+              for row in execute("SELECT key, updated_at FROM meta_kv ORDER BY key"):
+                  print("meta_key_only", row["key"], row["updated_at"])
           PY
