@@ -32,7 +32,7 @@ from src.x_bookmark_protocol import (
 from src.ranking import enrich_related_hot_many
 from src.preferences import apply_preference_profile
 from src.retrieval import search_items
-from src.twitter import _append_quoted_tweet
+from src.twitter import extract_quoted_tweet
 
 BASE_DIR = Path(__file__).resolve().parent
 SERVE_DIR = str(BASE_DIR / "public")
@@ -710,7 +710,7 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
                             break
 
                 title_hint, full_text = _extract_canonical_content_local(tweet_res, legacy)
-                full_text = _append_quoted_tweet(full_text, tweet_res)
+                quoted_tweet = extract_quoted_tweet(tweet_res)
                 fav_count = int(legacy.get("favorite_count", 0) or 0)
                 retweet_count = int(legacy.get("retweet_count", 0) or 0)
                 try:
@@ -761,6 +761,7 @@ def fetch_remote_bookmarks(max_pages=None, known_ids=None, full_scan=False):
                     "videos": videos,
                     "snippet": snippet,
                     "body_raw": full_text,
+                    "quoted_tweet": quoted_tweet,
                     "classify_status": "projected",
                 })
 
