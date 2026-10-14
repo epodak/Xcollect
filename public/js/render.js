@@ -587,12 +587,35 @@ function parseMarkdownToHtml(md, images, videos) {
   const lines = String(md).replace(/\r\n/g, "\n").split("\n");
   const parts = [];
   let paragraph = [];
+  let quoteLines = [];
   let listType = null;
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
     parts.push(`<p>${paragraph.map(renderInlineMarkdown).join("<br>")}</p>`);
     paragraph = [];
+  };
+
+  // Consecutive Markdown quote lines form one semantic block, including
+  // '>' paragraph separators from the X quoted-Tweet normalizer.
+  const flushQuote = () => {
+    if (!quoteLines.length) return;
+    const content = [];
+    let quoteParagraph = [];
+    const flushQuotedParagraph = () => {
+      if (!quoteParagraph.length) return;
+      content.push(`<p>${quoteParagraph.map(renderInlineMarkdown).join("<br>")}</p>`);
+      quoteParagraph = [];
+    };
+    for (const line of quoteLines) {
+      if (!line.trim()) flushQuotedParagraph();
+      else quoteParagraph.push(line);
+    }
+    flushQuotedParagraph();
+    const isTweetQuote = /^(?:\*\*引用推文\*\*|引用 @)/.test(quoteLines[0] || "");
+    const className = isTweetQuote ? "quoted-tweet-content" : "canonical-blockquote";
+    parts.push(`<blockquote class="${className}">${content.join("")}</blockquote>`);
+    quoteLines = [];
   };
 
   const closeList = () => {
@@ -610,6 +633,14 @@ function parseMarkdownToHtml(md, images, videos) {
 
   for (const rawLine of lines) {
     const line = String(rawLine || "");
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      closeList();
+      quoteLines.push(quote[1]);
+      continue;
+    }
+    flushQuote();
 
     if (!line.trim()) {
       flushParagraph();
@@ -640,14 +671,6 @@ function parseMarkdownToHtml(md, images, videos) {
       continue;
     }
 
-    const quote = line.match(/^>\s?(.*)$/);
-    if (quote) {
-      flushParagraph();
-      closeList();
-      parts.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
-      continue;
-    }
-
     const unordered = line.match(/^[-*]\s+(.+)$/);
     if (unordered) {
       flushParagraph();
@@ -669,6 +692,7 @@ function parseMarkdownToHtml(md, images, videos) {
   }
 
   flushParagraph();
+  flushQuote();
   closeList();
 
   let html = `<div class="canonical-prose">${parts.join("")}</div>`;

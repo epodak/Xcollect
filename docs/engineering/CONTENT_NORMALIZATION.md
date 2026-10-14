@@ -97,7 +97,23 @@ X Article inline images are extracted from `content_state` atomic media entities
 
 ## Quoted tweets
 
-The Cloud adapter currently folds one quoted tweet level into the canonical document as a blockquote so the local reader does not lose obvious source context.
+X GraphQL `quoted_status_result.result` is a distinct source object. Until an explicit
+structured relation field is introduced, both Cloud and Local adapters project one
+quoted level into a *single continuous Markdown quote* after the primary body, with
+an author/handle header and direct status URL when GraphQL supplies the quoted ID.
+
+The quote body uses `> text` for content lines and a bare `>` for intra-quote
+paragraph breaks. The Markdown renderer must accumulate consecutive `>` lines
+into **one** `<blockquote>`, rendering bare `>` as a paragraph separator inside
+that block. Emitting a `<blockquote>` per line is a data-projection bug: it makes
+one quoted Tweet appear as many unrelated cards, including empty cards.
+
+- Main body, quoted author, quoted body, and quoted source link remain distinguishable.
+- X Article's ordinary blockquotes also group consecutive lines but do not receive Tweet header styling.
+- Existing historical `> 引用 @handle` snapshots must render correctly without a data migration.
+- Legacy bookmarks need full reconciliation to enrich a missing quoted status URL.
+- The export/copy Markdown remains standards-compliant and retains the nested quote structure.
+- Do not infer missing quoted content or claim multi-tweet thread reconstruction.
 
 ## What is NOT yet equivalent to a canonical document
 

@@ -366,7 +366,11 @@ def _extract_canonical_content(tweet_result: dict, legacy: dict) -> tuple[str, s
 
 
 def _append_quoted_tweet(body: str, tweet_result: dict) -> str:
-    """把引用推文折叠进 canonical document，避免阅读器丢上下文。"""
+    """Embed one quoted Tweet as one portable Markdown block, with source identity.
+
+    Keep the body readable in existing JSON/D1/KV stores; renderers must treat
+    consecutive '> ' lines (including '>' paragraph separators) as ONE quote.
+    """
     quoted = _unwrap_tweet_result(((tweet_result.get("quoted_status_result", {}) or {}).get("result", {}) or {}))
     if not quoted:
         return body
@@ -379,9 +383,23 @@ def _append_quoted_tweet(body: str, tweet_result: dict) -> str:
     q_user = _unwrap_user_result(((quoted.get("core", {}) or {}).get("user_results", {}) or {}).get("result", {}) or {})
     q_core = q_user.get("core", {}) or {}
     q_legacy_user = q_user.get("legacy", {}) or {}
-    q_name = q_core.get("screen_name") or q_legacy_user.get("screen_name") or "unknown"
+    q_name = str(q_core.get("screen_name") or q_legacy_user.get("screen_name") or "").strip()
+    q_author = str(q_core.get("name") or q_legacy_user.get("name") or q_name or "未知作者")
+    q_author = " ".join(q_author.splitlines()).strip()
+    q_id = str(quoted.get("rest_id") or "").strip()
+
+    header = "> **引用推文**"
+    if q_author:
+        header += " · " + q_author
+    if q_name:
+        q_handle = "@" + q_name
+        if q_id:
+            q_handle = f"[@{q_name}](https://x.com/{q_name}/status/{q_id})"
+        header += " " + q_handle
+
+    # Each source blank line becomes a quoted blank line, not a new quote card.
     quoted_md = "\n".join(("> " + line) if line else ">" for line in q_body.splitlines())
-    return (body.rstrip() + "\n\n---\n\n> 引用 @" + str(q_name) + "\n>\n" + quoted_md).strip()
+    return (body.rstrip() + "\n\n" + header + "\n>\n" + quoted_md).strip()
 
 
 def normalize_tweet_result(
