@@ -36,8 +36,8 @@ class QuotedTweetContractTests(unittest.TestCase):
         }
 
     def test_quote_is_one_continuous_markdown_block_with_source(self):
-        normalized = normalize_tweet_result(self.fixture())
-        body = normalized["body_raw"]
+        # Historical snapshots still have the old Markdown projection.
+        body = _append_quoted_tweet("主推文第一段。\n\n主推文第二段。", self.fixture())
         self.assertIn("主推文第一段。\n\n主推文第二段。", body)
         self.assertIn("> **引用推文** · Finn Voorhees", body)
         self.assertIn(
