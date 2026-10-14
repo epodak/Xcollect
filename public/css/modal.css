@@ -374,6 +374,28 @@
   border-radius: 0 8px 8px 0;
 }
 
+/* A quoted Tweet is one nested content card, never one box per source line. */
+.canonical-prose blockquote > p {
+  margin: 0 0 0.65rem;
+  line-height: 1.65;
+}
+.canonical-prose blockquote > p:last-child {
+  margin-bottom: 0;
+}
+.canonical-prose blockquote.quoted-tweet-content {
+  margin: 1rem 0;
+  padding: 0.8rem 1rem;
+}
+.canonical-prose blockquote.quoted-tweet-content > p:first-child {
+  font-size: 0.9rem;
+  color: rgb(var(--c-fg));
+  font-weight: 500;
+  margin-bottom: 0.65rem;
+}
+.canonical-prose blockquote.quoted-tweet-content a {
+  overflow-wrap: anywhere;
+}
+
 .canonical-prose ul,
 .canonical-prose ol {
   margin: 0.5rem 0 1.1rem 1.35rem;
