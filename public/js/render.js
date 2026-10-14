@@ -612,7 +612,9 @@ function parseMarkdownToHtml(md, images, videos) {
       else quoteParagraph.push(line);
     }
     flushQuotedParagraph();
-    parts.push(`<blockquote class="quoted-tweet-content">${content.join("")}</blockquote>`);
+    const isTweetQuote = /^(?:\*\*引用推文\*\*|引用 @)/.test(quoteLines[0] || "");
+    const className = isTweetQuote ? "quoted-tweet-content" : "canonical-blockquote";
+    parts.push(`<blockquote class="${className}">${content.join("")}</blockquote>`);
     quoteLines = [];
   };
 
