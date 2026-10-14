@@ -55,24 +55,24 @@ assert.match(longHtml, /toggleCardText\(this\)/);
 
 // Old persisted quoted tweets must be one card with two internal paragraphs.
 // Bare '>' is an internal paragraph boundary, not its own visible quote box.
-const quoteText = "原推正文\\n\\n> 引用 @finnvoorhees\\n>\\n> Say goodbye to your Mac mini\\n>\\n> Your agent should live in your pocket.";
+const quoteText = "原推正文\n\n> 引用 @finnvoorhees\n>\n> Say goodbye to your Mac mini\n>\n> Your agent should live in your pocket.";
 const quotedCard = render({ ...baseItem, body_raw: quoteText });
 assert.equal((quotedCard.match(/<blockquote/g) || []).length, 1);
 assert.match(quotedCard, /<blockquote class="quoted-tweet-content">/);
-assert.match(quotedCard, /<p>引用 @finnvoorhees<\\/p>/);
-assert.match(quotedCard, /<p>Say goodbye to your Mac mini<\\/p>/);
-assert.match(quotedCard, /<p>Your agent should live in your pocket\\.<\\/p>/);
-assert.doesNotMatch(quotedCard, /<blockquote[^>]*>\\s*<\\/blockquote>/);
+assert.match(quotedCard, /<p>引用 @finnvoorhees<\/p>/);
+assert.match(quotedCard, /<p>Say goodbye to your Mac mini<\/p>/);
+assert.match(quotedCard, /<p>Your agent should live in your pocket\.<\/p>/);
+assert.doesNotMatch(quotedCard, /<blockquote[^>]*>\s*<\/blockquote>/);
 const quotedMarkdown = sandbox.buildTweetMarkdown({ ...baseItem, body_raw: quoteText });
-assert.match(quotedMarkdown, /> 引用 @finnvoorhees\\n>\\n> Say goodbye/);
+assert.match(quotedMarkdown, /> 引用 @finnvoorhees\n>\n> Say goodbye/);
 const enrichedQuote = sandbox.parseMarkdownToHtml(
-  "Top\\n\\n> **引用推文** · Finn Voorhees [@finnvoorhees](https://x.com/finnvoorhees/status/123)\\n>\\n> First paragraph\\n>\\n> Second paragraph",
+  "Top\n\n> **引用推文** · Finn Voorhees [@finnvoorhees](https://x.com/finnvoorhees/status/123)\n>\n> First paragraph\n>\n> Second paragraph",
   [], []
 );
 assert.equal((enrichedQuote.match(/<blockquote/g) || []).length, 1);
-assert.match(enrichedQuote, /https:\\/\\/x\\.com\\/finnvoorhees\\/status\\/123/);
+assert.match(enrichedQuote, /https:\/\/x\.com\/finnvoorhees\/status\/123/);
 assert.equal((enrichedQuote.match(/<p>/g) || []).length, 4); // primary + 3 quoted paragraphs
-const ordinaryBlock = sandbox.parseMarkdownToHtml("> Generic\\n> quoted content", [], []);
+const ordinaryBlock = sandbox.parseMarkdownToHtml("> Generic\n> quoted content", [], []);
 assert.match(ordinaryBlock, /class="canonical-blockquote"/);
 assert.equal((ordinaryBlock.match(/<blockquote/g) || []).length, 1);
 
