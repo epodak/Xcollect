@@ -365,6 +365,48 @@ def _extract_canonical_content(tweet_result: dict, legacy: dict) -> tuple[str, s
     return "", legacy_text.strip(), []
 
 
+def extract_quoted_tweet(tweet_result: dict) -> dict | None:
+    """One-level, source-owned quote relation. Never flatten into primary body_raw.
+
+    The X GraphQL quoted status is parsed without fetching any additional thread
+    or recursively visiting its own quoted_status_result. Return None when the
+    source supplies no usable quoted content; never synthesize missing text.
+    """
+    parent = _unwrap_tweet_result(tweet_result)
+    quoted = _unwrap_tweet_result(((parent.get("quoted_status_result", {}) or {}).get("result", {}) or {}))
+    if not quoted:
+        return None
+
+    legacy = quoted.get("legacy", {}) or {}
+    _, body, article_images = _extract_canonical_content(quoted, legacy)
+    images, videos = _extract_media(legacy)
+    for image in article_images:
+        if image not in images:
+            images.append(image)
+    if not body and not images and not videos:
+        return None
+
+    user = _unwrap_user_result(((quoted.get("core", {}) or {}).get("user_results", {}) or {}).get("result", {}) or {})
+    core = user.get("core", {}) or {}
+    older = user.get("legacy", {}) or {}
+    username = str(core.get("screen_name") or older.get("screen_name") or "").strip()
+    author = str(core.get("name") or older.get("name") or username or "未知作者").strip()
+    tweet_id = str(quoted.get("rest_id") or "").strip()
+    return {
+        "id": tweet_id,
+        "author": author,
+        "username": username,
+        "avatar": extract_avatar(user),
+        "url": (f"https://x.com/{username}/status/{tweet_id}"
+                if username and tweet_id else
+                (f"https://x.com/i/status/{tweet_id}" if tweet_id else "")),
+        "created_at": str(legacy.get("created_at") or ""),
+        "body_raw": body,
+        "images": images,
+        "videos": videos,
+    }
+
+
 def _append_quoted_tweet(body: str, tweet_result: dict) -> str:
     """Embed one quoted Tweet as one portable Markdown block, with source identity.
 
@@ -423,7 +465,7 @@ def normalize_tweet_result(
     s_name = user_core.get("screen_name", "")
 
     title_hint, text, article_images = _extract_canonical_content(t_res, legacy)
-    text = _append_quoted_tweet(text, t_res)
+    quoted_tweet = extract_quoted_tweet(t_res)
     images, videos = _extract_media(legacy)
     for image_url in article_images:
         if image_url not in images:
@@ -452,6 +494,7 @@ def normalize_tweet_result(
         "category": cat,
         "sub_category": subcat,
         "body_raw": text,
+        "quoted_tweet": quoted_tweet,
         "url": f"https://x.com/{s_name}/status/{rest_id}" if s_name else f"https://x.com/i/status/{rest_id}",
         "created_at": legacy.get("created_at", ""),
         "lang": legacy.get("lang", ""),
@@ -916,7 +959,7 @@ async def fetch_remote_bookmarks(
                 views = int((t_res.get("views", {}) or {}).get("count", 0) or 0)
 
                 title_hint, text, article_images = _extract_canonical_content(t_res, legacy)
-                text = _append_quoted_tweet(text, t_res)
+                quoted_tweet = extract_quoted_tweet(t_res)
 
                 images, videos = _extract_media(legacy)
                 for image_url in article_images:
@@ -941,6 +984,7 @@ async def fetch_remote_bookmarks(
                     "category": cat,
                     "sub_category": subcat,
                     "body_raw": text,
+                    "quoted_tweet": quoted_tweet,
                     "url": f"https://x.com/{s_name}/status/{rest_id}",
                     "created_at": created_at,
                     # X timeline 的 sortIndex 表达“在收藏流里的位置”，而不是推文发布时间。
