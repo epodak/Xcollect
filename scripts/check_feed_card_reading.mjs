@@ -76,6 +76,48 @@ const ordinaryBlock = sandbox.parseMarkdownToHtml("> Generic\n> quoted content",
 assert.match(ordinaryBlock, /class="canonical-blockquote"/);
 assert.equal((ordinaryBlock.match(/<blockquote/g) || []).length, 1);
 
+// Structured X quote is an independent object, not a Markdown quote inside body_raw.
+const quoteObject = {
+  id: "123",
+  author: "Finn Voorhees",
+  username: "finnvoorhees",
+  avatar: "https://pbs.twimg.com/finn_normal.jpg",
+  url: "https://x.com/finnvoorhees/status/123",
+  created_at: "2026-10-12T00:00:00Z",
+  body_raw: "Say goodbye to your Mac mini.\n\nYour agent should live in your pocket.",
+  images: ["https://pbs.twimg.com/quote.jpg"],
+  videos: [],
+};
+const structuredCard = render({ ...baseItem, body_raw: "Pelican discussion", quoted_tweet: quoteObject });
+assert.match(structuredCard, /<article class="embedded-tweet"/);
+assert.match(structuredCard, /class="embedded-tweet-author">Finn Voorhees/);
+assert.match(structuredCard, /href="https:\/\/x\.com\/finnvoorhees\/status\/123"/);
+assert.match(structuredCard, /Your agent should live in your pocket/);
+assert.match(structuredCard, /https:\/\/pbs\.twimg\.com\/quote\.jpg/);
+assert.doesNotMatch(structuredCard, /<blockquote class="quoted-tweet-content">/);
+assert.equal((structuredCard.match(/<article class="embedded-tweet"/g) || []).length, 1);
+const mdStructured = sandbox.buildTweetMarkdown({ ...baseItem, body_raw: "Pelican discussion", quoted_tweet: quoteObject });
+assert.match(mdStructured, /Pelican discussion\n\n> \*\*引用推文\*\*/);
+assert.match(mdStructured, /https:\/\/x\.com\/finnvoorhees\/status\/123/);
+assert.match(mdStructured, /> Say goodbye to your Mac mini\.\n>\n> Your agent/);
+assert.match(mdStructured, /> !\[引用推文配图\]\(https:\/\/pbs\.twimg\.com\/quote\.jpg\)/);
+assert.doesNotMatch(mdStructured.split("> **引用推文**")[0], /Say goodbye/);
+const mediaQuote = sandbox.renderQuotedTweetHtml({
+  ...quoteObject, videos: [{ url: "https://video.twimg.com/clip.mp4" }],
+});
+assert.match(mediaQuote, /<video[^>]*controls playsinline/);
+const unsafeQuote = sandbox.renderQuotedTweetHtml({
+  ...quoteObject, author: "<img src=x onerror=alert(1)>",
+  body_raw: "<script>alert(1)</script>", url: "javascript:alert(1)", avatar: "javascript:alert(2)"
+});
+assert.match(unsafeQuote, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+assert.doesNotMatch(unsafeQuote, /<script>|href="javascript:|src="javascript:/);
+assert.match(structuredCard, /card-readable-content/);
+assert.match(structuredCard, /embedded-tweet/);
+
+// Old flattened bookmarks continue to use the previous quote grouping.
+assert.equal((quotedCard.match(/<blockquote/g) || []).length, 1);
+
 // Source text must remain escaped even when rendered inside the card.
 const escaped = render({
   ...baseItem,
