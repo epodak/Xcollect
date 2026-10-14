@@ -89,6 +89,65 @@ function prepareReaderBody(tweet) {
 }
 
 /**
+ * Render X's quoted_status as an independent embedded Tweet. Main text stays
+ * in body_raw; no quote content is parsed out of the parent's Markdown.
+ */
+function renderQuotedTweetHtml(quote) {
+  if (!quote || typeof quote !== "object" || Array.isArray(quote)) return "";
+  const content = String(quote.body_raw || "");
+  const images = Array.isArray(quote.images) ? quote.images : [];
+  const videos = Array.isArray(quote.videos) ? quote.videos : [];
+  if (!content && !images.length && !videos.length) return "";
+
+  const author = String(quote.author || quote.username || "未知作者");
+  const handle = quote.username ? `@${quote.username}` : "";
+  const avatar = safeExternalUrl(quote.avatar || "");
+  const href = safeExternalUrl(quote.url || "");
+  const when = quote.created_at ? formatDate(quote.created_at) : "";
+  const link = href
+    ? `<a class="embedded-tweet-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" aria-label="打开被引用的原推">原推 ↗</a>`
+    : "";
+  const photo = avatar
+    ? `<img class="embedded-tweet-avatar" src="${escapeHtml(avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+    : `<span class="embedded-tweet-avatar embedded-tweet-avatar-fallback">${escapeHtml(author.charAt(0))}</span>`;
+  const meta = [handle, when].filter(Boolean).join(" · ");
+  return `<article class="embedded-tweet" aria-label="引用推文">
+    <header class="embedded-tweet-header">
+      ${photo}
+      <div class="embedded-tweet-identity">
+        <strong class="embedded-tweet-author">${escapeHtml(author)}</strong>
+        <span class="embedded-tweet-handle">${escapeHtml(meta)}</span>
+      </div>
+      ${link}
+    </header>
+    <div class="embedded-tweet-body">${parseMarkdownToHtml(content, images, videos)}</div>
+  </article>`;
+}
+
+function quotedTweetToMarkdown(quote) {
+  if (!quote || typeof quote !== "object" || Array.isArray(quote)) return "";
+  const body = String(quote.body_raw || "").trim();
+  const images = Array.isArray(quote.images) ? quote.images : [];
+  const videos = Array.isArray(quote.videos) ? quote.videos : [];
+  if (!body && !images.length && !videos.length) return "";
+  const author = String(quote.author || quote.username || "未知作者").replace(/[\r\n]+/g, " ");
+  const source = safeExternalUrl(quote.url || "");
+  const handle = quote.username
+    ? (source ? `[@${quote.username}](${source})` : `@${quote.username}`) : "";
+  const header = ["**引用推文**", author, handle].filter(Boolean).join(" · ");
+  const lines = [header, "", ...body.split("\n")];
+  for (const image of images) {
+    const url = safeExternalUrl(image);
+    if (url && !body.includes(url)) lines.push("", `![引用推文配图](${url})`);
+  }
+  for (const video of videos) {
+    const url = safeExternalUrl(getVideoSource(video));
+    if (url && !body.includes(url)) lines.push("", `[引用推文视频](${url})`);
+  }
+  return lines.map(line => line ? "> " + line : ">").join("\n");
+}
+
+/**
  * 将 canonical tweet 组装为可移植 Markdown。
  * body_raw 是正文真源；卡片 snippet 只在旧数据缺失正文时兜底。
  */
@@ -123,6 +182,8 @@ function buildTweetMarkdown(tweet) {
   }
 
   if (body) parts.push(body);
+  const quoteMarkdown = quotedTweetToMarkdown(tweet.quoted_tweet);
+  if (quoteMarkdown) parts.push("", quoteMarkdown);
 
   // 正文中没有显式引用的媒体，也一起带走，保证复制结果尽可能自包含。
   const mediaLines = [];
@@ -252,8 +313,10 @@ function generateTweetCardHtml(item, idx = 0) {
   const titlePrefix = title.replace(/(?:\.\.\.|…)\s*$/, "").trim();
   const bodyLead = fullText.replace(/^#{1,3}\s+/, "").trim();
   const repeatedTitle = titlePrefix.length >= 18 && bodyLead.startsWith(titlePrefix);
-  const needsInlineExpand = fullText.length > 1600;
-  const readableBody = parseMarkdownToHtml(fullText || "暂无可阅读正文。", [], []);
+  const quoteHtml = renderQuotedTweetHtml(item.quoted_tweet);
+  const quoteSize = item.quoted_tweet ? String(item.quoted_tweet.body_raw || "").length : 0;
+  const needsInlineExpand = fullText.length + quoteSize > 1600;
+  const readableBody = parseMarkdownToHtml(fullText || "暂无可阅读正文。", [], []) + quoteHtml;
   const readingHtml = `
     <div class="card-readable ${needsInlineExpand ? "is-collapsible" : ""}">
       <div class="card-readable-content">${readableBody}</div>
@@ -532,6 +595,7 @@ window.openDetail = function(tweetId) {
     tweet.images,
     tweet.videos
   );
+  bodyHtml += renderQuotedTweetHtml(tweet.quoted_tweet);
   bodyContainer.innerHTML = bodyHtml;
   document.getElementById("detailModal").classList.add("active");
 };
@@ -755,6 +819,8 @@ window.cleanTitle = cleanTitle;
 window.cleanSnippet = cleanSnippet;
 window.cleanBodyRaw = cleanBodyRaw;
 window.buildTweetMarkdown = buildTweetMarkdown;
+window.renderQuotedTweetHtml = renderQuotedTweetHtml;
+window.quotedTweetToMarkdown = quotedTweetToMarkdown;
 window.copyTweetMarkdown = copyTweetMarkdown;
 window.generateTweetCardHtml = generateTweetCardHtml;
 window.renderSkeletonCards = renderSkeletonCards;
