@@ -100,6 +100,31 @@ def _json_list(value):
     return []
 
 
+def _json_quote(value):
+    """Decode an optional quoted Tweet JSON object from D1 or KV."""
+    if isinstance(value, dict):
+        return value
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        decoded = json.loads(value)
+        return decoded if isinstance(decoded, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
+async def _ensure_quoted_tweet_column(env):
+    """Idempotent online D1 schema upgrade for older deployments.
+
+    Reconciliation may run before a manual migration. Keep existing reads
+    compatible and add this nullable field before writing quote snapshots.
+    """
+    fields = await env.DB.prepare("PRAGMA table_info(tweets)").all()
+    column_names = {_row_get(row, "name", "") for row in fields.results}
+    if "quoted_tweet" not in column_names:
+        await env.DB.prepare("ALTER TABLE tweets ADD COLUMN quoted_tweet TEXT").run()
+
+
 async def _load_bookmark_order(env) -> list[str]:
     """读取 X 收藏流顺序；第 0 个 ID 表示当前最新收藏。"""
     if not hasattr(env, "DB"):
@@ -271,6 +296,7 @@ async def load_tweets(env, bypass_cache: bool = False) -> dict:
                     "snippet": _row_get(r, "snippet", ""),
                     "body_raw": _row_get(r, "body_raw", ""),
                     "body_html": _row_get(r, "body_html", ""),
+                    "quoted_tweet": _json_quote(_row_get(r, "quoted_tweet")),
                     "classify_status": _row_get(r, "classify_status", "settled") or "settled",
                     # 越小越新；没有历史收藏顺序的老数据排在后面。
                     "bookmark_position": order_map.get(tweet_id, unordered_base + row_index),
@@ -522,7 +548,7 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
         INSERT INTO tweets (
             id, filename, category, sub_category, title, author, username, url, created_at,
             likes, retweets, views, has_media, media_type, images, videos, snippet,
-            body_raw, body_html, avatar, classify_status
+            body_raw, body_html, avatar, classify_status, quoted_tweet
         )
         SELECT
             CAST(json_extract(value, '$.id') AS TEXT),
@@ -545,7 +571,8 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
             json_extract(value, '$.body_raw'),
             json_extract(value, '$.body_html'),
             json_extract(value, '$.avatar'),
-            json_extract(value, '$.classify_status')
+            json_extract(value, '$.classify_status'),
+            json_extract(value, '$.quoted_tweet')
         FROM json_each(?)
         WHERE 1
         ON CONFLICT(id) DO UPDATE SET
@@ -565,6 +592,7 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
             snippet = excluded.snippet,
             body_raw = excluded.body_raw,
             body_html = excluded.body_html,
+            quoted_tweet = excluded.quoted_tweet,
             avatar = excluded.avatar,
             category = CASE
                 WHEN tweets.category IS NULL OR tweets.category = '' OR tweets.category = '未分类'
@@ -578,6 +606,8 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
         """
 
         try:
+            await _ensure_quoted_tweet_column(env)
+            details["d1_queries"] += 1
             existing_ids = await get_known_tweet_ids(env)
             details["d1_queries"] += 1
             details["d1_existing_before"] = len(existing_ids)
@@ -615,6 +645,8 @@ async def save_tweets(env, tweets: list[dict], refresh_existing: bool = False) -
                     "snippet": item.get("snippet", ""),
                     "body_raw": item.get("body_raw", ""),
                     "body_html": item.get("body_html", ""),
+                    "quoted_tweet": (json.dumps(item["quoted_tweet"], ensure_ascii=False)
+                                      if isinstance(item.get("quoted_tweet"), dict) else None),
                     "avatar": item.get("avatar", "") or "",
                     "classify_status": item.get("classify_status", "projected") or "projected",
                 })

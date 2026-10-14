@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS tweets (
     snippet TEXT,
     body_raw TEXT,
     body_html TEXT,
+    quoted_tweet TEXT, -- JSON object; independent of primary body_raw
     avatar TEXT,
     classify_status TEXT DEFAULT 'settled'
 );

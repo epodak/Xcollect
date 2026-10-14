@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.twitter import normalize_tweet_result, _append_quoted_tweet
+from src.twitter import normalize_tweet_result, _append_quoted_tweet, extract_quoted_tweet
 
 
 class QuotedTweetContractTests(unittest.TestCase):
@@ -36,8 +36,8 @@ class QuotedTweetContractTests(unittest.TestCase):
         }
 
     def test_quote_is_one_continuous_markdown_block_with_source(self):
-        normalized = normalize_tweet_result(self.fixture())
-        body = normalized["body_raw"]
+        # Historical snapshots still have the old Markdown projection.
+        body = _append_quoted_tweet("主推文第一段。\n\n主推文第二段。", self.fixture())
         self.assertIn("主推文第一段。\n\n主推文第二段。", body)
         self.assertIn("> **引用推文** · Finn Voorhees", body)
         self.assertIn(
@@ -47,6 +47,45 @@ class QuotedTweetContractTests(unittest.TestCase):
             body,
         )
         self.assertNotIn("\n---\n", body)
+
+    def test_structured_quote_is_separate_from_primary_content(self):
+        normalized = normalize_tweet_result(self.fixture())
+        self.assertEqual(normalized["body_raw"], "主推文第一段。\n\n主推文第二段。")
+        self.assertNotIn("Finn", normalized["body_raw"])
+        quote = normalized["quoted_tweet"]
+        self.assertEqual(quote["id"], "123")
+        self.assertEqual(quote["author"], "Finn Voorhees")
+        self.assertEqual(quote["username"], "finnvoorhees")
+        self.assertEqual(quote["url"], "https://x.com/finnvoorhees/status/123")
+        self.assertEqual(
+            quote["body_raw"],
+            "Say goodbye to your Mac mini\n\nYour agent should live in your pocket.",
+        )
+        self.assertEqual(quote["images"], [])
+        self.assertEqual(quote["videos"], [])
+        self.assertNotIn("Finn", normalized["snippet"])
+
+    def test_quote_media_and_author_avatar_are_independent(self):
+        root = self.fixture()
+        quote = root["quoted_status_result"]["result"]["tweet"]
+        quote["core"]["user_results"]["result"]["avatar"] = {
+            "image_url": "https://pbs.twimg.com/finn_normal.jpg"
+        }
+        quote["legacy"]["created_at"] = "Mon Oct 12 12:00:00 +0000 2026"
+        quote["legacy"]["extended_entities"] = {"media": [
+            {"type": "photo", "media_url_https": "https://pbs.twimg.com/quote.jpg"}
+        ]}
+        normalized = normalize_tweet_result(root)
+        self.assertEqual(normalized["quoted_tweet"]["images"], ["https://pbs.twimg.com/quote.jpg"])
+        self.assertEqual(normalized["images"], [])
+        self.assertIn("_400x400", normalized["quoted_tweet"]["avatar"])
+        self.assertEqual(normalized["quoted_tweet"]["created_at"], "Mon Oct 12 12:00:00 +0000 2026")
+
+    def test_missing_quote_returns_none(self):
+        root = self.fixture()
+        root.pop("quoted_status_result")
+        self.assertIsNone(extract_quoted_tweet(root))
+        self.assertIsNone(normalize_tweet_result(root)["quoted_tweet"])
 
     def test_no_quote_has_no_phantom_placeholder(self):
         self.assertEqual(_append_quoted_tweet("Main body", {}), "Main body")

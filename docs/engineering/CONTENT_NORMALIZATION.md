@@ -95,25 +95,52 @@ Regular tweet media comes from `legacy.extended_entities`.
 
 X Article inline images are extracted from `content_state` atomic media entities when available and normalized into Markdown image blocks plus stored media references.
 
-## Quoted tweets
+## Quoted tweets (structured relation)
 
-X GraphQL `quoted_status_result.result` is a distinct source object. Until an explicit
-structured relation field is introduced, both Cloud and Local adapters project one
-quoted level into a *single continuous Markdown quote* after the primary body, with
-an author/handle header and direct status URL when GraphQL supplies the quoted ID.
+X `quoted_status_result.result` is a second Tweet object. Source normalization now
+produces **two independent units**:
 
-The quote body uses `> text` for content lines and a bare `>` for intra-quote
-paragraph breaks. The Markdown renderer must accumulate consecutive `>` lines
-into **one** `<blockquote>`, rendering bare `>` as a paragraph separator inside
-that block. Emitting a `<blockquote>` per line is a data-projection bug: it makes
-one quoted Tweet appear as many unrelated cards, including empty cards.
+- `body_raw` — only the parent's Article / Note Tweet / legacy text; no artificial
+  horizontal rule and no markdown-encoded quoted status.
+- `quoted_tweet` — a nullable, one-level snapshot of the quoted status:
+  `{ id, author, username, avatar, url, created_at, body_raw, images, videos }`.
 
-- Main body, quoted author, quoted body, and quoted source link remain distinguishable.
-- X Article's ordinary blockquotes also group consecutive lines but do not receive Tweet header styling.
-- Existing historical `> 引用 @handle` snapshots must render correctly without a data migration.
-- Legacy bookmarks need full reconciliation to enrich a missing quoted status URL.
-- The export/copy Markdown remains standards-compliant and retains the nested quote structure.
-- Do not infer missing quoted content or claim multi-tweet thread reconstruction.
+Both Cloud Bookmark ingestion, X Search / Discovery ingestion, and Local bookmark
+ingestion use the same `extract_quoted_tweet()` source adapter. A quote with
+no body and no source media is not invented. Nested quotes / multi-Tweet threads
+are deliberately **not** traversed.
+
+The structured relation is kept separate all the way through storage:
+
+- **D1:** nullable JSON object in `tweets.quoted_tweet`; on older databases,
+  the writer checks `PRAGMA table_info(tweets)` and adds the column once before
+  the first new write. New installs have the field in `scripts/schema.sql`.
+  The reader returns `null` if the column is absent or invalid.
+- **KV / Local JSON:** ordinary nested `quoted_tweet` object, no migration.
+- **Discovery:** `payload_json` retains the object with the same semantics.
+
+The feed card and reader project `quoted_tweet` as a **single embedded Tweet card**,
+with compact author/handle/avatar/time, source link, full paragraphs and media,
+instead of Markdown blockquotes. No extra click is needed for ordinary quoted text.
+Long combined documents follow the existing in-place expansion contract.
+
+The Markdown Copy action reconstructs the portable `> `-prefixed quote at
+export time, keeping author/source and media links. JSON export preserves the
+original nested `quoted_tweet` object.
+
+### Compatibility and backfill
+
+Previously persisted posts store `> 引用 @handle` or `> **引用推文**`
+inline in `body_raw`. They remain readable as one continuous Markdown quote,
+with no data migration or destructive string splitting. A normal **full bookmark
+reconciliation** can replace an older flattened snapshot with separate
+`body_raw` and `quoted_tweet` fields from X (when still available). No
+historical relationship, ID or media is guessed from prose. If X no longer
+returns the quoted status, display only the observed source snapshot.
+
+The UI and export must never show two copies of one quoted status, must never
+mix quoted status media into the parent's media fields, and must escape all
+untrusted author/content/media URLs.
 
 ## What is NOT yet equivalent to a canonical document
 
