@@ -17,7 +17,7 @@ class QuotedTweetContractTests(unittest.TestCase):
                     "core": {"name": "Main Author", "screen_name": "main_author"}
                 }}
             },
-            "legacy": {"full_text": "主推文第一段。\\n\\n主推文第二段。"},
+            "legacy": {"full_text": "主推文第一段。\n\n主推文第二段。"},
             "quoted_status_result": {"result": {
                 "__typename": "TweetWithVisibilityResults",
                 "tweet": {
@@ -29,7 +29,7 @@ class QuotedTweetContractTests(unittest.TestCase):
                     },
                     "legacy": {"full_text": "legacy short"},
                     "note_tweet": {"note_tweet_results": {"result": {
-                        "text": "Say goodbye to your Mac mini\\n\\nYour agent should live in your pocket."
+                        "text": "Say goodbye to your Mac mini\n\nYour agent should live in your pocket."
                     }}},
                 },
             }},
@@ -38,15 +38,15 @@ class QuotedTweetContractTests(unittest.TestCase):
     def test_quote_is_one_continuous_markdown_block_with_source(self):
         normalized = normalize_tweet_result(self.fixture())
         body = normalized["body_raw"]
-        self.assertIn("主推文第一段。\\n\\n主推文第二段。", body)
+        self.assertIn("主推文第一段。\n\n主推文第二段。", body)
         self.assertIn("> **引用推文** · Finn Voorhees", body)
         self.assertIn(
             "[@finnvoorhees](https://x.com/finnvoorhees/status/123)", body)
         self.assertIn(
-            "> Say goodbye to your Mac mini\\n>\\n> Your agent should live in your pocket.",
+            "> Say goodbye to your Mac mini\n>\n> Your agent should live in your pocket.",
             body,
         )
-        self.assertNotIn("\\n---\\n", body)
+        self.assertNotIn("\n---\n", body)
 
     def test_no_quote_has_no_phantom_placeholder(self):
         self.assertEqual(_append_quoted_tweet("Main body", {}), "Main body")
