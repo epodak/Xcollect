@@ -78,3 +78,11 @@
    - Operational change procedure: `.agents/skills/discovery-plane/SKILL.md`.
    - Executable contracts: `scripts/check_discovery.py`, `scripts/check_feed_contract.py`, `scripts/check_related_hot.py`.
 
+
+## Design context and reader experience (effective 2026-10-16)
+
+- Before changing `public/index.html`, `public/css/*` or the frontend reading/interaction logic, read [PRODUCT.md](PRODUCT.md) for durable product truth, [DESIGN.md](DESIGN.md) for Stitch-compatible *target* design language, and [docs/design/READING_EXPERIENCE.md](docs/design/READING_EXPERIENCE.md) for the Impeccable-based review and acceptance loop.
+- Current CSS is **not** proof that the target palette/design is deployed. A design PR must distinguish source changes, checks run, authenticated visual testing, deployment status and unverified gaps.
+- Prefer a reading-first experience over management chrome. Preserve all canonical content, quote attribution, source-provenance and Discovery/bookmark invariants above; never trade them away for a cosmetic improvement.
+- The Impeccable skill is an optional **development harness** integration. Use pnpm only. Its commands are not a production/runtime dependency. If unavailable, record a manual critique; do not claim an automated audit ran.
+- Run `python scripts/check_design_contract.py` and `pnpm run check` for UI/design PRs. The design contract script is a documentation-shape gate, **not** a substitute for screenshots, keyboard, mobile and interaction tests.
